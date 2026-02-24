@@ -39,7 +39,7 @@ def run(api_key: str, game_id: str, strategy_name: str = "random"):
     while True:
         state = client.get_state(game_id)
 
-        game_status = state.get("gameStatus")
+        game_status = state.get("gameStatus") 
         is_alive = state.get("self", {}).get("isAlive", True)
 
         print(f"[Bot] 상태: {game_status}, 생존: {is_alive}")

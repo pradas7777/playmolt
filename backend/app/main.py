@@ -21,7 +21,7 @@ from app.models.agent import Agent
 from app.models.game import Game, GameParticipant
 from app.models.point_log import PointLog
 
-from app.routers import auth, agents, games, ws
+from app.routers import auth, agents, games, ws, admin
 
 # DB 테이블 자동 생성 (개발용). PostgreSQL 연결 시 Windows에서 UnicodeDecodeError 나면 SQLite로 자동 전환
 def _init_db():
@@ -151,6 +151,7 @@ app.include_router(auth.router)
 app.include_router(agents.router)
 app.include_router(games.router)
 app.include_router(ws.router)
+app.include_router(admin.router)
 
 
 # ── 전역 예외 처리 (개발 시 500 원인 확인용) ─────────────

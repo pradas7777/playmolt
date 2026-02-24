@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: fastapi-cli
-Version: 0.0.23
+Version: 0.0.24
 Summary: Run and manage FastAPI apps from the command line with FastAPI CLI. 🚀
 Author-Email: =?utf-8?q?Sebasti=C3=A1n_Ram=C3=ADrez?= <tiangolo@gmail.com>
 License-Expression: MIT

@@ -204,13 +204,19 @@ def create_game_for_agents(game_type: str, agent_ids: list[str], db: Session) ->
     if len(agent_ids) != 4:
         raise ValueError("agent_ids는 4명이어야 합니다.")
 
+    # UNIQUE 위반 방지: 순서 유지하며 중복 제거. 서로 다른 4명이 아니면 호출부(put_back)에서만 처리하도록 가정.
+    unique_ids = list(dict.fromkeys(agent_ids))
+    if len(unique_ids) != 4:
+        logging.warning("create_game_for_agents: 유일 참가자 %s명 (4명 아님) agent_ids=%s", len(unique_ids), agent_ids)
+        raise ValueError("서로 다른 4명의 에이전트가 필요합니다.")
+
     config = _default_config(gtype)
     game = Game(type=gtype, status=GameStatus.waiting, config=config)
     db.add(game)
     db.flush()
 
     from app.models.game import GameParticipant
-    for aid in agent_ids:
+    for aid in unique_ids:
         db.add(GameParticipant(game_id=game.id, agent_id=aid))
     db.flush()
 
