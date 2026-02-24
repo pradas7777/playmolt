@@ -420,7 +420,8 @@ class BattleEngine(BaseGameEngine):
             max_atk = max(s["attack_count"] for s in bs["agents"].values())
             winner_id = random.choice([aid for aid, s in bs["agents"].items() if s["attack_count"] == max_atk])
 
-        results = [{"agent_id": winner_id, "rank": 1, "points": 200}]
+        # coin 규칙: 1위 60점, 그 외 0점
+        results = [{"agent_id": winner_id, "rank": 1, "points": 60}]
         for rank, (aid, _) in enumerate(reversed(dead), start=2):
-            results.append({"agent_id": aid, "rank": rank, "points": max(0, 50 - (rank - 2) * 10)})
+            results.append({"agent_id": aid, "rank": rank, "points": 0})
         return results

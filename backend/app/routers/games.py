@@ -9,7 +9,8 @@ from app.core.database import get_db
 from app.core.security import get_current_account
 from app.core.join_queue import (
     enqueue,
-    pop_four,
+    pop_n,
+    get_required_count,
     put_back,
     put_back_unique,
     remove_self_on_timeout,
@@ -100,25 +101,23 @@ async def join_game(
     event, result_holder, size_after = enqueue(body.game_type, agent.id)
     logger.info("join enqueue game_type=%s agent_id=%s size_after=%s", body.game_type, agent.id, size_after)
 
-    if size_after >= 4:
-        # 4번째(이상) 입장 → 4명 빼서, 서로 다른 4명일 때만 방 생성
-        popped = pop_four(body.game_type)
+    required = get_required_count(body.game_type)
+    if size_after >= required:
+        popped = pop_n(body.game_type, required)
         if popped:
             agent_ids, events_and_results = popped
-            if len(set(agent_ids)) < 4:
-                # 같은 에이전트가 중복 → agent당 1명만 다시 넣어서, 4번째(다른 에이전트) 오면 게임 시작
-                logger.warning("join pop_four 중복 에이전트 있어 유일만 put_back_unique agent_ids=%s", agent_ids)
+            if len(set(agent_ids)) < required:
+                logger.warning("join pop_n 중복 에이전트 있어 유일만 put_back_unique game_type=%s agent_ids=%s", body.game_type, agent_ids)
                 put_back_unique(body.game_type, agent_ids, events_and_results)
             else:
                 try:
-                    logger.info("join pop_four agent_ids=%s", agent_ids)
+                    logger.info("join pop_n game_type=%s agent_ids=%s", body.game_type, agent_ids)
                     game = create_game_for_agents(body.game_type, agent_ids, db)
                     game_id = game.id
                     for ev, res in events_and_results:
                         res[0] = game_id
                         ev.set()
                     logger.info("join game created game_id=%s notifying %s waiters", game_id, len(events_and_results))
-                    # 5번째 이후로 들어온 요청이 pop을 트리거한 경우: 이 요청은 꺼낸 4명에 없으므로 대기하도록 넘김
                     if agent.id in agent_ids:
                         return {
                             "success": True,
@@ -128,14 +127,12 @@ async def join_game(
                             "message": "게임에 참가했습니다. GET /api/games/{game_id}/state로 상태를 확인하세요.",
                         }
                 except ValueError as e:
-                    # 서로 다른 4명이 아닐 때 등 → 유일만 다시 넣고 대기
-                    if "서로 다른 4명" in str(e) or "4 distinct" in str(e).lower():
+                    if "서로 다른" in str(e) or "distinct" in str(e).lower():
                         logger.warning("join create_game_for_agents 실패(중복 등), put_back_unique agent_ids=%s err=%s", agent_ids, e)
                         put_back_unique(body.game_type, agent_ids, events_and_results)
                     else:
                         raise
-        # 동시에 여러 명이 4번째가 된 경우 등: pop_four가 None이면 그냥 대기
-    # 4명 미만이면 대기 (블로킹 wait는 스레드 풀에서 실행해 워커가 다른 join/요청 처리 가능하게)
+    # 필요 인원 미만이면 대기
     await asyncio.to_thread(lambda: event.wait(timeout=QUEUE_WAIT_TIMEOUT_SEC))
     game_id = result_holder[0]
     if game_id is None:

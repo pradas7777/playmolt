@@ -1,6 +1,6 @@
 """
 대기열(Queue) 기반 매칭.
-join 시 바로 방에 넣지 않고 대기열에 넣고, 4명이 모이면 한 방을 만들어 4명을 동시에 배정.
+join 시 대기열에 넣고, 게임별 필요 인원이 모이면 한 방을 만들어 동시 배정.
 
 ※ 대기열은 프로세스별 메모리(in-memory)입니다.
   uvicorn을 여러 워커로 띄우면 워커마다 큐가 따로 있어, 한 워커에서 대기 중인 에이전트와
@@ -10,8 +10,22 @@ import threading
 from typing import Any
 
 QUEUE_WAIT_TIMEOUT_SEC = 300
+
+# 게임별 필요 인원 (이 인원이 모여야 방 생성)
+REQUIRED_COUNT: dict[str, int] = {
+    "battle": 4,
+    "mafia": 6,
+    "ox": 5,
+    "trial": 6,
+}
+
 _queues: dict[str, list[dict[str, Any]]] = {}
 _queue_lock = threading.Lock()
+
+
+def get_required_count(game_type: str) -> int:
+    """게임 타입별 필요 인원. 알 수 없으면 4."""
+    return REQUIRED_COUNT.get(game_type, 4)
 
 
 def enqueue(game_type: str, agent_id: str) -> tuple[threading.Event, list, int]:
@@ -41,23 +55,28 @@ def enqueue(game_type: str, agent_id: str) -> tuple[threading.Event, list, int]:
     return event, result_holder, size
 
 
-def pop_four(game_type: str) -> tuple[list[str], list[tuple[threading.Event, list]]] | None:
+def pop_n(game_type: str, n: int) -> tuple[list[str], list[tuple[threading.Event, list]]] | None:
     """
-    4명이 모였을 때만 호출. 대기열에서 4명을 꺼내
+    n명이 모였을 때만 호출. 대기열에서 n명을 꺼내
     (agent_id 리스트, [(event, result_holder), ...]) 반환.
-    4명 미만이면 None.
+    n명 미만이면 None.
     """
     with _queue_lock:
         q = _queues.get(game_type, [])
-        if len(q) < 4:
+        if len(q) < n:
             return None
-        popped = q[:4]
-        _queues[game_type] = q[4:]
+        popped = q[:n]
+        _queues[game_type] = q[n:]
         if not _queues[game_type]:
             del _queues[game_type]
         agent_ids = [e["agent_id"] for e in popped]
         events_and_results = [(e["event"], e["result"]) for e in popped]
         return agent_ids, events_and_results
+
+
+def pop_four(game_type: str) -> tuple[list[str], list[tuple[threading.Event, list]]] | None:
+    """4명 꺼내기 (battle 호환)."""
+    return pop_n(game_type, 4)
 
 
 def put_back(
@@ -66,10 +85,10 @@ def put_back(
     events_and_results: list[tuple[threading.Event, list]],
 ) -> None:
     """
-    pop_four로 꺼낸 4명을 다시 대기열 앞에 넣음.
-    서로 다른 4명이 아닐 때(중복 agent) 게임을 만들지 않고 대기시키기 위해 사용.
+    pop_n으로 꺼낸 N명을 다시 대기열 앞에 넣음.
+    서로 다른 N명이 아닐 때(중복 agent) 게임을 만들지 않고 대기시키기 위해 사용.
     """
-    if len(agent_ids) != len(events_and_results) or len(agent_ids) != 4:
+    if len(agent_ids) != len(events_and_results):
         return
     with _queue_lock:
         if game_type not in _queues:

@@ -1,15 +1,14 @@
 """
 engines/base.py
 모든 게임 엔진이 상속하는 공통 인터페이스.
-턴 관리, 상태 조회, 포인트 지급은 여기서 처리.
-각 게임은 process_action()과 get_game_state()만 구현하면 됨.
+coin 규칙: 승점 1점=1coin, 비정상 종료 0점. mafia/trial 승패, battle/ox 1등 횟수 로그.
 """
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any
 from sqlalchemy.orm import Session
 
-from app.models.game import Game, GameParticipant, GameStatus
+from app.models.game import Game, GameParticipant, GameStatus, GameType
 from app.models.agent import Agent
 from app.models.point_log import PointLog
 
@@ -89,11 +88,11 @@ class BaseGameEngine(ABC):
         return {"success": True, "game_id": self.game.id}
 
     def finish(self):
-        """게임 종료 + 포인트 지급 공통 처리"""
+        """게임 종료 + 승점·승패·1등 로그 기록 (coin 규칙: 1점=1coin, 비정상 종료 시 0점)."""
         results = self.calculate_results()
 
         for result in results:
-            # 참가 기록 업데이트
+            # 참가 기록: 승패(win/lose) + 획득 포인트
             participant = self.db.query(GameParticipant).filter_by(
                 game_id=self.game.id,
                 agent_id=result["agent_id"]
@@ -102,7 +101,7 @@ class BaseGameEngine(ABC):
                 participant.result = "win" if result["rank"] == 1 else "lose"
                 participant.points_earned = result["points"]
 
-            # 포인트 로그 기록
+            # 포인트 로그 (승점 = coin)
             if result["points"] > 0:
                 agent = self.db.query(Agent).filter_by(id=result["agent_id"]).first()
                 if agent:
@@ -111,9 +110,18 @@ class BaseGameEngine(ABC):
                         agent_id=result["agent_id"],
                         game_id=self.game.id,
                         delta=result["points"],
-                        reason=f"{self.game.type}_rank_{result['rank']}",
+                        reason=f"{self.game.type.value}_rank_{result['rank']}",
                     )
                     self.db.add(log)
+
+            # battle / ox: 1등 횟수 로그 (AI 에이전트 조회용, delta=0으로 포인트 중복 없음)
+            if result["rank"] == 1 and self.game.type in (GameType.battle, GameType.ox):
+                self.db.add(PointLog(
+                    agent_id=result["agent_id"],
+                    game_id=self.game.id,
+                    delta=0,
+                    reason=f"{self.game.type.value}_first_place",
+                ))
 
         # 게임 상태 업데이트
         self.game.status = GameStatus.finished

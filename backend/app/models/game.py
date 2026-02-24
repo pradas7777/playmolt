@@ -12,6 +12,7 @@ class GameType(str, enum.Enum):
     mafia = "mafia"
     agora = "agora"
     battle = "battle"
+    trial = "trial"
 
 
 class GameStatus(str, enum.Enum):
