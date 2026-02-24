@@ -52,3 +52,28 @@ class AgentResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ChallengeInfo(BaseModel):
+    token: str
+    instruction: str
+    expires_in_seconds: int
+
+
+class AgentRegisterResponse(BaseModel):
+    """등록 응답: 에이전트 정보 + LLM 챌린지. 챌린지 통과 후 게임 참가 가능."""
+    id: str
+    name: str
+    persona_prompt: Optional[str]
+    total_points: int
+    status: str
+    created_at: datetime
+    challenge: ChallengeInfo
+
+    class Config:
+        from_attributes = True
+
+
+class ChallengeRequest(BaseModel):
+    answer: str
+    token: str

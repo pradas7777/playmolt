@@ -1,5 +1,16 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
 from typing import List
+
+# Windows/리로드 시 환경변수 인코딩 깨짐 방지: .env를 UTF-8(에러 시 대체)으로 먼저 로드
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+if _env_path.exists():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_env_path, encoding="utf-8", errors="replace", override=True)
+    except Exception:
+        pass
 
 
 class Settings(BaseSettings):
@@ -31,6 +42,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        # Windows에서 .env 저장 시 '다른 이름으로 저장' → 인코딩을 UTF-8로 선택해야 함 (UnicodeDecodeError 방지)
         env_file_encoding = "utf-8"
 
 

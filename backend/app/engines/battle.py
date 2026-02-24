@@ -8,11 +8,34 @@ engines/battle.py - 4인 서바이벌 배틀 엔진
 """
 import copy
 import random
+import threading
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.engines.base import BaseGameEngine
 from app.models.game import Game, GameStatus
 from app.models.agent import Agent
+
+# get_state에서 lazy start 시 한 게임당 한 번만 _setup_agents 실행하도록
+_setup_locks: dict[str, threading.Lock] = {}
+_setup_locks_mutex = threading.Lock()
+# process_action 직렬화: 동시에 4명이 액션 제출 시 최신 pending_actions를 읽고 한 명만 commit 하면 덮어쓰기 방지
+_action_locks: dict[str, threading.Lock] = {}
+_action_locks_mutex = threading.Lock()
+
+
+def _get_setup_lock(game_id: str) -> threading.Lock:
+    with _setup_locks_mutex:
+        if game_id not in _setup_locks:
+            _setup_locks[game_id] = threading.Lock()
+        return _setup_locks[game_id]
+
+
+def _get_action_lock(game_id: str) -> threading.Lock:
+    with _action_locks_mutex:
+        if game_id not in _action_locks:
+            _action_locks[game_id] = threading.Lock()
+        return _action_locks[game_id]
 
 
 class BattleEngine(BaseGameEngine):
@@ -36,10 +59,12 @@ class BattleEngine(BaseGameEngine):
                 "round_log": [], "history": [],
             }
         }
+        flag_modified(self.game, "config")
         self.db.commit()
 
     def _commit(self, new_bs: dict):
         self.game.config = {**self.game.config, "battle_state": new_bs}
+        flag_modified(self.game, "config")  # JSON 컬럼 변경 감지 (안 하면 commit 후에도 DB에 반영 안 됨)
         self.db.commit()
         from app.core.connection_manager import manager
         manager.schedule_broadcast(
@@ -77,28 +102,32 @@ class BattleEngine(BaseGameEngine):
         if self.game.status != GameStatus.running:
             return {"success": False, "error": "GAME_NOT_RUNNING"}
 
-        bs = self._bs()
-        agent_state = bs["agents"].get(agent.id)
-        if not agent_state:
-            return {"success": False, "error": "AGENT_NOT_IN_GAME"}
-        if not agent_state["alive"]:
-            return {"success": False, "error": "AGENT_DEAD"}
-        if bs["phase"] != "collect":
-            return {"success": False, "error": "NOT_COLLECTION_PHASE"}
-        if agent.id in bs["pending_actions"]:
-            return {"success": False, "error": "ALREADY_ACTED"}
+        lock = _get_action_lock(self.game.id)
+        with lock:
+            # 동시 제출 시 최신 pending_actions를 읽기 위해 DB에서 다시 로드
+            self.db.refresh(self.game)
+            bs = self._bs()
+            agent_state = bs["agents"].get(agent.id)
+            if not agent_state:
+                return {"success": False, "error": "AGENT_NOT_IN_GAME"}
+            if not agent_state["alive"]:
+                return {"success": False, "error": "AGENT_DEAD"}
+            if bs["phase"] != "collect":
+                return {"success": False, "error": "NOT_COLLECTION_PHASE"}
+            if agent.id in bs["pending_actions"]:
+                return {"success": False, "error": "ALREADY_ACTED"}
 
-        validated = self._validate_action(agent.id, action, agent_state, bs)
-        if not validated["success"]:
-            return validated
+            validated = self._validate_action(agent.id, action, agent_state, bs)
+            if not validated["success"]:
+                return validated
 
-        bs["pending_actions"][agent.id] = validated["action"]
-        alive_agents = [aid for aid, s in bs["agents"].items() if s["alive"]]
-        all_submitted = set(alive_agents) == set(bs["pending_actions"].keys())
-        self._commit(bs)
+            bs["pending_actions"][agent.id] = validated["action"]
+            alive_agents = [aid for aid, s in bs["agents"].items() if s["alive"]]
+            all_submitted = set(alive_agents) == set(bs["pending_actions"].keys())
+            self._commit(bs)
 
-        if all_submitted:
-            self._apply_round()
+            if all_submitted:
+                self._apply_round()
 
         return {"success": True, "message": "행동이 접수되었습니다"}
 
@@ -232,11 +261,40 @@ class BattleEngine(BaseGameEngine):
         return bs
 
     def get_state(self, agent: Agent) -> dict:
-        bs = self.game.config["battle_state"]
-        ag = bs["agents"].get(agent.id, {})
+        # 다른 요청에서 commit한 라운드 진행 반영을 위해 항상 DB에서 최신 상태 로드
+        self.db.refresh(self.game)
+        bs = self.game.config.get("battle_state") or {}
+        from app.models.game import GameParticipant
+        participants = self.db.query(GameParticipant).filter_by(game_id=self.game.id).all()
+        # 4명 찼는데 아직 대기 중이면(방 합치기 등으로 늦게 모인 경우) 여기서 게임 시작
+        if self.game.status == GameStatus.waiting and len(participants) >= self.MAX_AGENTS:
+            lock = _get_setup_lock(self.game.id)
+            with lock:
+                self.db.refresh(self.game)
+                participants = self.db.query(GameParticipant).filter_by(game_id=self.game.id).all()
+                if len(participants) >= self.MAX_AGENTS and self.game.status == GameStatus.waiting:
+                    self._start_game()
+            bs = self.game.config.get("battle_state") or {}
+        # 게임은 이미 running인데 phase가 아직 waiting이면(4명 참가 직후 누락 등) 여기서 시작 처리
+        elif (
+            self.game.status == GameStatus.running
+            and bs.get("phase") == "waiting"
+            and (not bs.get("agents") or not bs.get("action_order"))
+        ):
+            lock = _get_setup_lock(self.game.id)
+            with lock:
+                self.db.refresh(self.game)
+                bs = self.game.config.get("battle_state") or {}
+                if bs.get("phase") == "waiting" and (not bs.get("agents") or not bs.get("action_order")):
+                    participants = self.db.query(GameParticipant).filter_by(game_id=self.game.id).all()
+                    if len(participants) >= self.MAX_AGENTS:
+                        self._setup_agents()
+                bs = self.game.config.get("battle_state") or {}
+
+        ag = bs.get("agents", {}).get(agent.id, {})
 
         other_agents = []
-        for aid, s in bs["agents"].items():
+        for aid, s in bs.get("agents", {}).items():
             if aid != agent.id:
                 oa = self.db.query(Agent).filter_by(id=aid).first()
                 other_agents.append({
@@ -249,26 +307,33 @@ class BattleEngine(BaseGameEngine):
         if ag.get("defend_streak", 0) < 3:
             allowed.append("defend")
 
+        action_order = bs.get("action_order", [])
+        history = bs.get("history", [])
+        round_num = bs.get("round", 0)
+        phase = bs.get("phase", "waiting")
+
+        # 에이전트가 아직 battle_state에 없으면(대기 중) isAlive 기본 True
+        is_alive = ag.get("alive", True) if ag else True
         return {
             "gameStatus": self.game.status.value,
             "gameType": "battle",
-            "round": bs["round"],
+            "round": round_num,
             "maxRounds": self.MAX_ROUNDS,
-            "phase": bs["phase"],
-            "action_order": bs["action_order"],
-            "my_position": bs["action_order"].index(agent.id) if agent.id in bs["action_order"] else -1,
+            "phase": phase,
+            "action_order": action_order,
+            "my_position": action_order.index(agent.id) if agent.id in action_order else -1,
             "self": {
                 "id": agent.id, "name": agent.name,
                 "hp": ag.get("hp", 0), "energy": ag.get("energy", 0),
                 "defend_streak": ag.get("defend_streak", 0),
                 "attack_count": ag.get("attack_count", 0),
-                "isAlive": ag.get("alive", False),
+                "isAlive": is_alive,
             },
             "other_agents": other_agents,
             "allowed_actions": allowed,
-            "last_round": bs["history"][-1] if bs["history"] else None,
-            "gas_info": self._get_gas_info(bs["round"]),
-            "result": self._get_result(agent.id) if bs["phase"] == "end" else None,
+            "last_round": history[-1] if history else None,
+            "gas_info": self._get_gas_info(round_num),
+            "result": self._get_result(agent.id) if phase == "end" else None,
         }
 
     def _get_gas_info(self, rnd):

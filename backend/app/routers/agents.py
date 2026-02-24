@@ -1,40 +1,112 @@
+import uuid
+from datetime import datetime, timezone, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_account
 from app.models.api_key import ApiKey
-from app.models.agent import Agent
-from app.schemas.agent import AgentRegisterRequest, AgentResponse
+from app.models.agent import Agent, AgentStatus
+from app.schemas.agent import (
+    AgentRegisterRequest,
+    AgentResponse,
+    AgentRegisterResponse,
+    ChallengeInfo,
+    ChallengeRequest,
+)
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
+CHALLENGE_EXPIRES_SECONDS = 30
+CHALLENGE_INSTRUCTION = (
+    '다음 JSON 형식으로만 답하세요: {{"answer": "READY", "token": "{token}"}}'
+)
 
-@router.post("/register", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post("/register", response_model=AgentRegisterResponse, status_code=status.HTTP_201_CREATED)
 def register_agent(
     body: AgentRegisterRequest,
     account: ApiKey = Depends(get_current_account),
     db: Session = Depends(get_db),
 ):
     """
-    X-API-Key 인증 → 에이전트 등록
-    OPENCLAW가 SKILL.md 읽고 자동 호출하는 엔드포인트
+    X-API-Key 인증 → 에이전트 등록 (status=pending).
+    응답의 challenge로 POST /api/agents/challenge 호출해 통과하면 게임 참가 가능.
     """
-    # 이미 에이전트 있으면 409
     existing = db.query(Agent).filter(Agent.api_key_id == account.id).first()
     if existing:
         raise HTTPException(status_code=409, detail="이미 등록된 에이전트가 있습니다")
 
+    token = str(uuid.uuid4())
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=CHALLENGE_EXPIRES_SECONDS)
     agent = Agent(
         user_id=account.user_id,
         api_key_id=account.id,
         name=body.name,
         persona_prompt=body.persona_prompt,
+        status=AgentStatus.pending,
+        challenge_token=token,
+        challenge_expires_at=expires_at,
     )
     db.add(agent)
     db.commit()
     db.refresh(agent)
 
+    return AgentRegisterResponse(
+        id=agent.id,
+        name=agent.name,
+        persona_prompt=agent.persona_prompt,
+        total_points=agent.total_points,
+        status=agent.status.value,
+        created_at=agent.created_at,
+        challenge=ChallengeInfo(
+            token=token,
+            instruction=CHALLENGE_INSTRUCTION.format(token=token),
+            expires_in_seconds=CHALLENGE_EXPIRES_SECONDS,
+        ),
+    )
+
+
+@router.post("/challenge", response_model=AgentResponse)
+def submit_challenge(
+    body: ChallengeRequest,
+    account: ApiKey = Depends(get_current_account),
+    db: Session = Depends(get_db),
+):
+    """
+    LLM 챌린지 제출. token + answer "READY" 검증 후 status=active.
+    만료 시 새 token 발급해 재시도 가능.
+    """
+    agent = db.query(Agent).filter(Agent.api_key_id == account.id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="등록된 에이전트가 없습니다. POST /api/agents/register를 먼저 하세요.")
+
+    now = datetime.now(timezone.utc)
+    if agent.challenge_token != body.token:
+        raise HTTPException(status_code=400, detail="챌린지 토큰이 일치하지 않습니다.")
+    expires_at = agent.challenge_expires_at
+    if expires_at is not None and getattr(expires_at, "tzinfo", None) is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at is not None and expires_at < now:
+        # 만료 시 새 토큰 발급
+        new_token = str(uuid.uuid4())
+        agent.challenge_token = new_token
+        agent.challenge_expires_at = datetime.now(timezone.utc) + timedelta(seconds=CHALLENGE_EXPIRES_SECONDS)
+        db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail="챌린지가 만료되었습니다. 새 instruction으로 재시도하세요.",
+            headers={"X-Challenge-Token": new_token},
+        )
+    if body.answer != "READY":
+        raise HTTPException(status_code=400, detail="answer는 'READY'여야 합니다.")
+
+    agent.status = AgentStatus.active
+    agent.challenge_token = None
+    agent.challenge_expires_at = None
+    db.commit()
+    db.refresh(agent)
     return agent
 
 

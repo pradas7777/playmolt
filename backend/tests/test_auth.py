@@ -5,7 +5,7 @@
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 import os
@@ -38,10 +38,22 @@ Base.metadata.create_all(bind=engine)
 client = TestClient(app)
 
 
+def _ensure_agent_challenge_columns(engine):
+    """테스트 DB에 agents 챌린지 컬럼 보장."""
+    with engine.connect() as conn:
+        for col in ["challenge_token", "challenge_expires_at"]:
+            try:
+                conn.execute(text(f"ALTER TABLE agents ADD COLUMN {col} VARCHAR(255)"))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+
 @pytest.fixture(autouse=True)
 def clean_db():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    _ensure_agent_challenge_columns(engine)
     yield
 
 
@@ -121,9 +133,13 @@ def test_register_agent():
         json={"name": "TestBot", "persona_prompt": "나는 테스트 봇이다"}
     )
     assert r.status_code == 201
-    assert r.json()["name"] == "TestBot"
-    # 지금은 기본값 active, 나중에 챌린지 붙이면 pending으로 바뀜
-    assert r.json()["status"] == "active"
+    data = r.json()
+    assert data["name"] == "TestBot"
+    assert data["status"] == "pending"
+    assert "challenge" in data
+    assert "token" in data["challenge"]
+    assert "instruction" in data["challenge"]
+    assert data["challenge"].get("expires_in_seconds") == 30
 
 
 def test_register_agent_duplicate():

@@ -3,11 +3,17 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_account
+from app.core.join_queue import (
+    enqueue,
+    pop_four,
+    remove_self_on_timeout,
+    QUEUE_WAIT_TIMEOUT_SEC,
+)
 from app.models.api_key import ApiKey
 from app.models.agent import Agent, AgentStatus
 from app.models.game import Game
 from app.schemas.game import JoinGameRequest, ActionRequest
-from app.services.game_service import get_or_create_game, get_engine
+from app.services.game_service import create_game_for_agents, get_engine
 
 router = APIRouter(prefix="/api/games", tags=["games"])
 
@@ -18,7 +24,7 @@ def _get_agent(account: ApiKey, db: Session) -> Agent:
     if not agent:
         raise HTTPException(404, "등록된 에이전트가 없습니다. POST /api/agents/register를 먼저 하세요.")
     if agent.status != AgentStatus.active:
-        raise HTTPException(403, "에이전트 검증이 완료되지 않았습니다.")
+        raise HTTPException(status_code=403, detail="AGENT_NOT_VERIFIED")
     return agent
 
 
@@ -29,12 +35,10 @@ def join_game(
     db: Session = Depends(get_db),
 ):
     """
-    게임 자동 배정 참가.
-    대기 중인 방이 있으면 배정, 없으면 새 방 생성.
+    대기열 기반 참가. 한 줄로 세우고 4명이 모이면 새 방 1개를 만들어 4명을 동시에 배정.
     """
     agent = _get_agent(account, db)
 
-    # 이미 진행 중인 게임이 있는지 확인
     from app.models.game import GameParticipant, GameStatus
     active = db.query(GameParticipant).join(Game).filter(
         GameParticipant.agent_id == agent.id,
@@ -43,19 +47,38 @@ def join_game(
     if active:
         raise HTTPException(409, f"이미 진행 중인 게임이 있습니다. game_id: {active.game_id}")
 
-    game = get_or_create_game(body.game_type, db)
-    engine = get_engine(game, db)
-    result = engine.join(agent)
+    event, result_holder, size_after = enqueue(body.game_type, agent.id)
 
-    if not result["success"]:
-        raise HTTPException(400, result["error"])
-
+    if size_after >= 4:
+        # 4번째(이상) 입장 → 4명 빼서 방 만들고 모두에게 game_id 전달
+        popped = pop_four(body.game_type)
+        if popped:
+            agent_ids, events_and_results = popped
+            game = create_game_for_agents(body.game_type, agent_ids, db)
+            game_id = game.id
+            for ev, res in events_and_results:
+                res[0] = game_id
+                ev.set()
+            return {
+                "success": True,
+                "game_id": game_id,
+                "game_type": game.type.value,
+                "status": game.status.value,
+                "message": "게임에 참가했습니다. GET /api/games/{game_id}/state로 상태를 확인하세요.",
+            }
+        # 동시에 여러 명이 4번째가 된 경우 등: pop_four가 None이면 그냥 대기
+    # 4명 미만이면 대기
+    event.wait(timeout=QUEUE_WAIT_TIMEOUT_SEC)
+    game_id = result_holder[0]
+    if game_id is None:
+        remove_self_on_timeout(body.game_type, result_holder)
+        raise HTTPException(408, "매칭 대기 시간이 초과되었습니다. 다시 시도해 주세요.")
     return {
         "success": True,
-        "game_id": game.id,
-        "game_type": game.type.value,
-        "status": game.status.value,
-        "message": "게임에 참가했습니다. GET /api/games/{game_id}/state로 상태를 확인하세요."
+        "game_id": game_id,
+        "game_type": body.game_type,
+        "status": "running",
+        "message": "게임에 참가했습니다. GET /api/games/{game_id}/state로 상태를 확인하세요.",
     }
 
 
