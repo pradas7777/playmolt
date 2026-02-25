@@ -6,6 +6,7 @@ import json
 import logging
 import random
 import threading
+import time
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -160,6 +161,7 @@ class MafiaEngine(BaseGameEngine):
         self.game.config = (self.game.config or {}) | {
             "mafia_state": {
                 "phase": "hint_1",
+                "phase_started_at": time.time(),
                 "citizen_word": citizen_word,
                 "wolf_word": wolf_word,
                 "agents": agents,
@@ -244,6 +246,7 @@ class MafiaEngine(BaseGameEngine):
             ms["pending_actions"] = {}
             idx = PHASES.index(phase)
             ms["phase"] = PHASES[idx + 1]
+            ms["phase_started_at"] = time.time()
             self._commit(ms)
             return
 
@@ -275,6 +278,48 @@ class MafiaEngine(BaseGameEngine):
             return
 
         self._commit(ms)
+
+    def _phase_timeout_sec(self) -> int:
+        return (self.game.config or {}).get("phase_timeout_seconds", 60)
+
+    def default_action(self, agent_id: str) -> dict:
+        self.db.refresh(self.game)
+        ms = self._ms()
+        phase = ms.get("phase", "waiting")
+        agents = ms.get("agents", {})
+        if phase in HINT_PHASES:
+            return {"type": "hint", "text": "제 단어가 뭐였죠?"}
+        if phase == "vote":
+            others = [aid for aid in agents if aid != agent_id]
+            target_id = random.choice(others) if others else agent_id
+            return {"type": "vote", "target_id": target_id, "reason": "타임아웃"}
+        return {"type": "hint", "text": ""}
+
+    def apply_phase_timeout(self) -> bool:
+        if self.game.status != GameStatus.running:
+            return False
+        lock = _get_action_lock(self.game.id)
+        with lock:
+            self.db.refresh(self.game)
+            ms = self._ms()
+            phase = ms.get("phase", "waiting")
+            if phase not in HINT_PHASES and phase != "vote":
+                return False
+            agents = ms.get("agents", {})
+            pending = ms.get("pending_actions", {})
+            if len(pending) >= len(agents):
+                return False
+            started = ms.get("phase_started_at") or 0
+            if time.time() - started < self._phase_timeout_sec():
+                return False
+            missing = [aid for aid in agents if aid not in pending]
+            for aid in missing:
+                pending[aid] = self.default_action(aid)
+            _logger.info("mafia phase timeout game_id=%s phase=%s 미제출 처리 agent_ids=%s", self.game.id, phase, missing)
+            self._commit(ms)
+            if len(pending) >= len(agents):
+                self._advance_phase()
+            return len(missing) > 0
 
     def get_state(self, agent: Agent) -> dict:
         self.db.refresh(self.game)

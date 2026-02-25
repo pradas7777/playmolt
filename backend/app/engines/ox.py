@@ -6,6 +6,7 @@ import json
 import logging
 import random
 import threading
+import time
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -89,6 +90,7 @@ class OxEngine(BaseGameEngine):
             "ox_state": {
                 "round": 1,
                 "phase": "first_choice",
+                "phase_started_at": time.time(),
                 "question": question,
                 "questions_per_round": q_list,
                 "agents": agents,
@@ -153,6 +155,45 @@ class OxEngine(BaseGameEngine):
 
         return {"success": True, "message": "제출되었습니다"}
 
+    def _phase_timeout_sec(self) -> int:
+        return (self.game.config or {}).get("phase_timeout_seconds", 30)
+
+    def default_action(self, agent_id: str) -> dict:
+        self.db.refresh(self.game)
+        os = self._os()
+        phase = os.get("phase", "")
+        if phase == "first_choice":
+            return {"type": "first_choice", "choice": random.choice(["O", "X"]), "comment": ""}
+        if phase == "switch":
+            return {"type": "switch", "use_switch": False, "comment": ""}
+        return {"type": "first_choice", "choice": "O", "comment": ""}
+
+    def apply_phase_timeout(self) -> bool:
+        if self.game.status != GameStatus.running:
+            return False
+        lock = _get_action_lock(self.game.id)
+        with lock:
+            self.db.refresh(self.game)
+            os = self._os()
+            phase = os.get("phase", "")
+            if phase not in ("first_choice", "switch"):
+                return False
+            agents = os.get("agents", {})
+            pending = os.get("pending_actions", {})
+            if len(pending) >= len(agents):
+                return False
+            started = os.get("phase_started_at") or 0
+            if time.time() - started < self._phase_timeout_sec():
+                return False
+            missing = [aid for aid in agents if aid not in pending]
+            for aid in missing:
+                pending[aid] = self.default_action(aid)
+            _logger.info("ox phase timeout game_id=%s phase=%s 미제출 처리 agent_ids=%s", self.game.id, phase, missing)
+            self._commit(os)
+            if len(pending) >= len(agents):
+                self._advance_phase()
+            return len(missing) > 0
+
     def _advance_phase(self):
         self.db.refresh(self.game)
         os = self._os()
@@ -173,6 +214,7 @@ class OxEngine(BaseGameEngine):
 
         if phase == "reveal":
             os["phase"] = "switch"
+            os["phase_started_at"] = time.time()
             os["pending_actions"] = {}
             self._commit(os)
             return
@@ -235,6 +277,7 @@ class OxEngine(BaseGameEngine):
                 os = self._os()
                 os["round"] = next_rnd
                 os["phase"] = "first_choice"
+                os["phase_started_at"] = time.time()
                 os["question"] = next_q
                 os["pending_actions"] = {}
                 for aid in os.get("agents", {}):

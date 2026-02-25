@@ -242,18 +242,22 @@ def _default_config(game_type: GameType) -> dict:
             "max_rounds": 15,
             "gas_random_start": 8,
             "gas_all_start": 11,
+            "phase_timeout_seconds": 30,
         },
         GameType.ox: {
             "max_agents": 5,
             "max_rounds": 5,
+            "phase_timeout_seconds": 30,
         },
         GameType.mafia: {
             "max_agents": 6,
             "wolf_count": 1,
             "max_rounds": 5,
+            "phase_timeout_seconds": 60,
         },
         GameType.trial: {
             "max_agents": 6,
+            "phase_timeout_seconds": 60,
         },
     }
     return configs.get(game_type, {})

@@ -59,6 +59,9 @@ def _init_db():
                 for col_sql in [
                     "ALTER TABLE agents ADD COLUMN challenge_token VARCHAR(255)",
                     "ALTER TABLE agents ADD COLUMN challenge_expires_at DATETIME",
+                    "ALTER TABLE agents ADD COLUMN heartbeat_enabled INTEGER DEFAULT 0",
+                    "ALTER TABLE agents ADD COLUMN heartbeat_interval_hours INTEGER DEFAULT 4",
+                    "ALTER TABLE agents ADD COLUMN heartbeat_last_at DATETIME",
                 ]:
                     try:
                         conn.execute(text(col_sql))
@@ -94,6 +97,9 @@ def _init_db():
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active'"))
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS challenge_token VARCHAR(255)"))
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS challenge_expires_at TIMESTAMP WITH TIME ZONE"))
+                conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS heartbeat_enabled BOOLEAN DEFAULT FALSE"))
+                conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS heartbeat_interval_hours INTEGER DEFAULT 4"))
+                conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS heartbeat_last_at TIMESTAMP WITH TIME ZONE"))
                 conn.commit()
     except UnicodeDecodeError as e:
         logging.warning("PostgreSQL 연결 시 인코딩 오류 → 로컬 SQLite로 전환합니다. (%s)", e)
@@ -114,6 +120,9 @@ def _init_db():
                 for col_sql in [
                     "ALTER TABLE agents ADD COLUMN challenge_token VARCHAR(255)",
                     "ALTER TABLE agents ADD COLUMN challenge_expires_at DATETIME",
+                    "ALTER TABLE agents ADD COLUMN heartbeat_enabled INTEGER DEFAULT 0",
+                    "ALTER TABLE agents ADD COLUMN heartbeat_interval_hours INTEGER DEFAULT 4",
+                    "ALTER TABLE agents ADD COLUMN heartbeat_last_at DATETIME",
                 ]:
                     try:
                         conn.execute(text(col_sql))
@@ -239,25 +248,46 @@ def unhandled_exception_handler(request, exc: Exception):
     return Utf8JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
 
-# ── SKILL.md 서빙 (OPENCLAW가 읽는 진입점) ─────────────
+# ── skill.json / SKILL.md 서빙 ─────────────────────────────
+def _skill_version_path():
+    return Path(__file__).resolve().parent / "data" / "skill_version.json"
+
+
+@app.get("/skill.json", include_in_schema=False)
+def serve_skill_json():
+    """스킬 버전 정보. 에이전트가 변경 여부 확인용."""
+    path = _skill_version_path()
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"version": "1.0.0", "updated_at": "1970-01-01T00:00:00Z"}
+
+
 @app.get("/SKILL.md", response_class=PlainTextResponse, include_in_schema=False)
 def serve_skill_md():
-    try:
-        with open("/app/docs/SKILL.md", "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return "# PlayMolt SKILL.md\n\n준비 중입니다."
-
-
-@app.get("/games/battle/SKILL.md", response_class=PlainTextResponse, include_in_schema=False)
-def serve_battle_skill_md():
     for path in [
-        Path("/app/docs/games/battle/SKILL.md"),
-        Path(__file__).resolve().parent.parent.parent / "docs" / "games" / "battle" / "SKILL.md",
+        Path("/app/docs/SKILL.md"),
+        Path(__file__).resolve().parent.parent.parent / "docs" / "SKILL.md",
     ]:
         if path.exists():
             return path.read_text(encoding="utf-8")
-    return "# PlayMolt Battle SKILL.md\n\n준비 중입니다."
+    return "# PlayMolt SKILL.md\n\n준비 중입니다."
+
+
+@app.get("/games/{game_type}/SKILL.md", response_class=PlainTextResponse, include_in_schema=False)
+def serve_game_skill_md(game_type: str):
+    """게임별 SKILL.md (battle, mafia, trial, ox)."""
+    for base in [
+        Path("/app/docs/games"),
+        Path(__file__).resolve().parent.parent.parent / "docs" / "games",
+    ]:
+        path = base / game_type / "SKILL.md"
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+    return f"# PlayMolt {game_type} SKILL.md\n\n준비 중입니다."
 
 
 # ── 헬스체크 ───────────────────────────────────────────
