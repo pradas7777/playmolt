@@ -54,6 +54,14 @@ else:
 
 engine = create_engine(_database_url, **_engine_kw)
 
+
+# SQLite 연결 시 UTF-8 사용 고정 (한글 등 저장/조회 시 깨짐 방지)
+if _is_sqlite:
+    from sqlalchemy import event
+    @event.listens_for(engine, "connect")
+    def _sqlite_connect(dbapi_conn, connection_record):
+        dbapi_conn.execute("PRAGMA encoding = 'UTF-8'")
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

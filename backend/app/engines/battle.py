@@ -7,8 +7,10 @@ engines/battle.py - 4인 서바이벌 배틀 엔진
   self._commit(bs)      # config 전체 교체로 SQLAlchemy에 감지시킴
 """
 import copy
+import logging
 import random
 import threading
+import time
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -31,6 +33,9 @@ def _get_setup_lock(game_id: str) -> threading.Lock:
         return _setup_locks[game_id]
 
 
+_logger = logging.getLogger(__name__)
+
+
 def _get_action_lock(game_id: str) -> threading.Lock:
     with _action_locks_mutex:
         if game_id not in _action_locks:
@@ -42,6 +47,8 @@ class BattleEngine(BaseGameEngine):
 
     MAX_AGENTS = 4
     MAX_ROUNDS = 15
+    # collect 단계에서 이 시간(초) 안에 액션 안 낸 생존자는 charge로 처리해 라운드 진행 (외부 에이전트 이탈 대비)
+    COLLECT_TIMEOUT_SEC = 45
     GAS_RANDOM_START = 8
     GAS_ALL_START = 11
 
@@ -96,6 +103,7 @@ class BattleEngine(BaseGameEngine):
         bs["action_order"] = agent_ids
         bs["round"] = 1
         bs["phase"] = "collect"
+        bs["collect_entered_at"] = time.time()
         self._commit(bs)
 
     def process_action(self, agent: Agent, action: dict) -> dict:
@@ -119,17 +127,53 @@ class BattleEngine(BaseGameEngine):
 
             validated = self._validate_action(agent.id, action, agent_state, bs)
             if not validated["success"]:
-                return validated
+                # 잘못된 액션도 charge로 기록해, 한 명의 bad request가 나머지 봇 진행을 막지 않도록 함
+                bs["pending_actions"][agent.id] = {"type": "charge"}
+            else:
+                bs["pending_actions"][agent.id] = validated["action"]
 
-            bs["pending_actions"][agent.id] = validated["action"]
             alive_agents = [aid for aid, s in bs["agents"].items() if s["alive"]]
             all_submitted = set(alive_agents) == set(bs["pending_actions"].keys())
+            if not all_submitted:
+                # collect 타임아웃: 미제출자는 charge로 처리해 라운드 진행 (외부 에이전트 이탈 시 테스트 봇만 진행 가능)
+                entered = bs.get("collect_entered_at") or 0
+                if time.time() - entered >= self.COLLECT_TIMEOUT_SEC:
+                    missing = [aid for aid in alive_agents if aid not in bs["pending_actions"]]
+                    for aid in missing:
+                        bs["pending_actions"][aid] = {"type": "charge"}
+                    _logger.info("battle collect timeout game_id=%s round=%s 미제출 charge 처리 agent_ids=%s", self.game.id, bs.get("round"), missing)
+                    all_submitted = True
             self._commit(bs)
 
             if all_submitted:
                 self._apply_round()
 
+            if not validated["success"]:
+                return validated
         return {"success": True, "message": "행동이 접수되었습니다"}
+
+    def _maybe_apply_collect_timeout(self) -> None:
+        """collect 단계에서 타임아웃 시 미제출자를 charge로 채우고 라운드 적용. get_state 호출 시에도 진행되도록."""
+        if self.game.status != GameStatus.running:
+            return
+        lock = _get_action_lock(self.game.id)
+        with lock:
+            self.db.refresh(self.game)
+            bs = self._bs()
+            if bs.get("phase") != "collect":
+                return
+            alive_agents = [aid for aid, s in bs["agents"].items() if s["alive"]]
+            if set(alive_agents) == set(bs.get("pending_actions", {}).keys()):
+                return
+            entered = bs.get("collect_entered_at") or 0
+            if time.time() - entered < self.COLLECT_TIMEOUT_SEC:
+                return
+            missing = [aid for aid in alive_agents if aid not in bs["pending_actions"]]
+            for aid in missing:
+                bs["pending_actions"][aid] = {"type": "charge"}
+            _logger.info("battle collect timeout(get_state) game_id=%s round=%s 미제출 charge 처리 agent_ids=%s", self.game.id, bs.get("round"), missing)
+            self._commit(bs)
+            self._apply_round()
 
     def _validate_action(self, agent_id, action, agent_state, bs):
         action_type = action.get("type")
@@ -203,6 +247,7 @@ class BattleEngine(BaseGameEngine):
             bs["pending_actions"] = {}
             bs["round_log"] = []
             bs["phase"] = "collect"
+            bs["collect_entered_at"] = time.time()
             alive_order = [a for a in bs["action_order"] if bs["agents"][a]["alive"]]
             if alive_order:
                 bs["action_order"] = alive_order[1:] + [alive_order[0]]
@@ -264,6 +309,11 @@ class BattleEngine(BaseGameEngine):
         # 다른 요청에서 commit한 라운드 진행 반영을 위해 항상 DB에서 최신 상태 로드
         self.db.refresh(self.game)
         bs = self.game.config.get("battle_state") or {}
+        # collect 타임아웃: state만 폴링하는 봇이 있어도 미제출자 charge 처리 후 라운드 진행
+        if self.game.status == GameStatus.running and bs.get("phase") == "collect":
+            self._maybe_apply_collect_timeout()
+            self.db.refresh(self.game)
+            bs = self.game.config.get("battle_state") or {}
         from app.models.game import GameParticipant
         participants = self.db.query(GameParticipant).filter_by(game_id=self.game.id).all()
         # 4명 찼는데 아직 대기 중이면(방 합치기 등으로 늦게 모인 경우) 여기서 게임 시작
@@ -349,8 +399,10 @@ class BattleEngine(BaseGameEngine):
         alive = [aid for aid, s in bs["agents"].items() if s["alive"]]
         from app.models.game import GameParticipant
         p = self.db.query(GameParticipant).filter_by(game_id=self.game.id, agent_id=agent_id).first()
+        # 생존 1명이면 그 에이전트가 승자. 전원 사망(가스 등) 시에는 calculate_results에서 정한 rank 1이 승자이므로 DB 결과 사용
+        is_winner = (agent_id in alive and len(alive) == 1) or (p and getattr(p, "result", None) == "win")
         return {
-            "isWinner": agent_id in alive and len(alive) == 1,
+            "isWinner": is_winner,
             "isAlive": ag.get("alive", False),
             "points": p.points_earned if p else 0,
         }
@@ -374,7 +426,8 @@ class BattleEngine(BaseGameEngine):
             max_atk = max(s["attack_count"] for s in bs["agents"].values())
             winner_id = random.choice([aid for aid, s in bs["agents"].items() if s["attack_count"] == max_atk])
 
-        results = [{"agent_id": winner_id, "rank": 1, "points": 200}]
+        # coin 규칙: 1위 60점, 그 외 0점
+        results = [{"agent_id": winner_id, "rank": 1, "points": 60}]
         for rank, (aid, _) in enumerate(reversed(dead), start=2):
-            results.append({"agent_id": aid, "rank": rank, "points": max(0, 50 - (rank - 2) * 10)})
+            results.append({"agent_id": aid, "rank": rank, "points": 0})
         return results

@@ -1,10 +1,12 @@
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 
 # Windows/리로드 시 환경변수 인코딩 깨짐 방지: .env를 UTF-8(에러 시 대체)으로 먼저 로드
-_env_path = Path(__file__).resolve().parent.parent / ".env"
+# config.py 위치: backend/app/core/config.py → 3단계 상위가 backend/
+_env_dir = Path(__file__).resolve().parent.parent.parent
+_env_path = _env_dir / ".env"
 if _env_path.exists():
     try:
         from dotenv import load_dotenv
@@ -36,14 +38,56 @@ class Settings(BaseSettings):
     APP_TITLE: str = "PlayMolt API"
     APP_VERSION: str = "0.1.0"
 
+    # Admin (관리자용: 현재 진행 중 게임 일괄 종료 등)
+    ADMIN_SECRET: Optional[str] = None
+
+    # 방치 게임 정리: 이 시간(분) 지난 waiting/running 게임은 join 시 자동 finished 처리. 개발 시 5 등으로 짧게 두면 409 완화.
+    ABANDONED_GAME_MINUTES: int = 30
+
     @property
     def origins_list(self) -> List[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
 
     class Config:
-        env_file = ".env"
-        # Windows에서 .env 저장 시 '다른 이름으로 저장' → 인코딩을 UTF-8로 선택해야 함 (UnicodeDecodeError 방지)
+        # backend/.env 절대 경로로 고정 (cwd와 무관)
+        env_file = str(_env_path.resolve())
         env_file_encoding = "utf-8"
 
 
-settings = Settings()
+def _load_settings():
+    import os
+    # .env를 한 번 더 로드해 ADMIN_SECRET 등 선택 항목이 확실히 들어가도록 함 (cwd/import 순서 이슈 대비)
+    if _env_path.exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(_env_path, encoding="utf-8", errors="replace", override=True)
+        except Exception:
+            pass
+    try:
+        return Settings()
+    except Exception:
+        # pydantic이 env_file을 못 읽는 경우: 여기서 .env를 직접 로드 후 os.environ으로 구성
+        if _env_path.exists():
+            from dotenv import load_dotenv
+            load_dotenv(_env_path, encoding="utf-8", errors="replace", override=True)
+        if not os.environ.get("DATABASE_URL"):
+            raise RuntimeError(
+                f"DATABASE_URL가 없습니다. .env 파일을 확인하세요: {_env_path}"
+            ) from None
+        return Settings(
+            DATABASE_URL=os.environ["DATABASE_URL"],
+            REDIS_URL=os.environ["REDIS_URL"],
+            JWT_SECRET=os.environ["JWT_SECRET"],
+            JWT_ALGORITHM=os.environ.get("JWT_ALGORITHM", "HS256"),
+            JWT_EXPIRE_MINUTES=int(os.environ.get("JWT_EXPIRE_MINUTES", "1440")),
+            API_KEY_PREFIX=os.environ.get("API_KEY_PREFIX", "pl_live_"),
+            ALLOWED_ORIGINS=os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000"),
+            APP_ENV=os.environ.get("APP_ENV", "development"),
+            APP_TITLE=os.environ.get("APP_TITLE", "PlayMolt API"),
+            APP_VERSION=os.environ.get("APP_VERSION", "0.1.0"),
+            ADMIN_SECRET=os.environ.get("ADMIN_SECRET") or None,
+            ABANDONED_GAME_MINUTES=int(os.environ.get("ABANDONED_GAME_MINUTES", "30")),
+        )
+
+
+settings = _load_settings()

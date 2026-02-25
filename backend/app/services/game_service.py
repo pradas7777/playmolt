@@ -178,11 +178,15 @@ def _get_or_create_inside(gtype: GameType, config: dict, db: Session) -> Game:
 def get_engine(game: Game, db: Session):
     """게임 타입에 맞는 엔진 반환"""
     from app.engines.battle import BattleEngine
-    # from app.engines.ox import OxEngine       # 나중에
-    # from app.engines.mafia import MafiaEngine  # 나중에
+    from app.engines.mafia import MafiaEngine
+    from app.engines.ox import OxEngine
+    from app.engines.trial import TrialEngine
 
     engines = {
         GameType.battle: BattleEngine,
+        GameType.mafia: MafiaEngine,
+        GameType.ox: OxEngine,
+        GameType.trial: TrialEngine,
     }
 
     engine_class = engines.get(game.type)
@@ -192,17 +196,29 @@ def get_engine(game: Game, db: Session):
     return engine_class(game, db)
 
 
+def _required_agents(game_type: GameType) -> int:
+    """게임 타입별 필요 참가 인원."""
+    n = {GameType.battle: 4, GameType.mafia: 6, GameType.ox: 5, GameType.trial: 6}.get(game_type, 4)
+    return n
+
+
 def create_game_for_agents(game_type: str, agent_ids: list[str], db: Session) -> Game:
     """
-    대기열에서 4명이 모였을 때 호출. 새 방 1개 생성 후 4명 동시 배정하고 바로 시작.
+    대기열에서 필요 인원이 모였을 때 호출. 새 방 1개 생성 후 동시 배정하고 바로 시작.
     commit 시점에는 이미 status=running 이므로 타입별 대기 방 1개 제약에 걸리지 않음.
     """
     try:
         gtype = GameType(game_type)
     except ValueError:
         raise ValueError(f"지원하지 않는 게임 타입: {game_type}")
-    if len(agent_ids) != 4:
-        raise ValueError("agent_ids는 4명이어야 합니다.")
+    required = _required_agents(gtype)
+    if len(agent_ids) != required:
+        raise ValueError(f"agent_ids는 {required}명이어야 합니다.")
+
+    unique_ids = list(dict.fromkeys(agent_ids))
+    if len(unique_ids) != required:
+        logging.warning("create_game_for_agents: 유일 참가자 %s명 (%s명 아님) agent_ids=%s", len(unique_ids), required, agent_ids)
+        raise ValueError(f"서로 다른 {required}명의 에이전트가 필요합니다.")
 
     config = _default_config(gtype)
     game = Game(type=gtype, status=GameStatus.waiting, config=config)
@@ -210,7 +226,7 @@ def create_game_for_agents(game_type: str, agent_ids: list[str], db: Session) ->
     db.flush()
 
     from app.models.game import GameParticipant
-    for aid in agent_ids:
+    for aid in unique_ids:
         db.add(GameParticipant(game_id=game.id, agent_id=aid))
     db.flush()
 
@@ -228,11 +244,16 @@ def _default_config(game_type: GameType) -> dict:
             "gas_all_start": 11,
         },
         GameType.ox: {
-            "max_agents": 10,
-            "max_rounds": 10,
+            "max_agents": 5,
+            "max_rounds": 5,
         },
         GameType.mafia: {
-            "max_agents": 7,
+            "max_agents": 6,
+            "wolf_count": 1,
+            "max_rounds": 5,
+        },
+        GameType.trial: {
+            "max_agents": 6,
         },
     }
     return configs.get(game_type, {})

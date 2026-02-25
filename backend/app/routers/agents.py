@@ -12,9 +12,12 @@ from app.schemas.agent import (
     AgentRegisterRequest,
     AgentResponse,
     AgentRegisterResponse,
+    AgentMeResponse,
+    GameTypeStats,
     ChallengeInfo,
     ChallengeRequest,
 )
+from app.models.game import Game, GameParticipant, GameStatus
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -110,7 +113,38 @@ def submit_challenge(
     return agent
 
 
-@router.get("/me", response_model=AgentResponse)
+def _compute_agent_stats(db: Session, agent_id: str) -> tuple[dict[str, GameTypeStats], GameTypeStats]:
+    """에이전트의 게임별·전체 승/패(승률)를 GameParticipant + Game에서 집계."""
+    rows = (
+        db.query(GameParticipant.result, Game.type)
+        .join(Game, GameParticipant.game_id == Game.id)
+        .filter(GameParticipant.agent_id == agent_id, Game.status == GameStatus.finished)
+        .all()
+    )
+    by_type: dict[str, dict[str, int]] = {}
+    total_wins = total_losses = 0
+    for result, gtype in rows:
+        if result not in ("win", "lose"):
+            continue
+        key = gtype.value if hasattr(gtype, "value") else str(gtype)
+        by_type.setdefault(key, {"wins": 0, "losses": 0})
+        if result == "win":
+            by_type[key]["wins"] += 1
+            total_wins += 1
+        else:
+            by_type[key]["losses"] += 1
+            total_losses += 1
+    game_stats = {}
+    for key, c in by_type.items():
+        w, l = c["wins"], c["losses"]
+        rate = w / (w + l) if (w + l) > 0 else 0.0
+        game_stats[key] = GameTypeStats(wins=w, losses=l, win_rate=round(rate, 4))
+    total_rate = total_wins / (total_wins + total_losses) if (total_wins + total_losses) > 0 else 0.0
+    total_stats = GameTypeStats(wins=total_wins, losses=total_losses, win_rate=round(total_rate, 4))
+    return game_stats, total_stats
+
+
+@router.get("/me", response_model=AgentMeResponse)
 def get_my_agent(
     account: ApiKey = Depends(get_current_account),
     db: Session = Depends(get_db),
@@ -118,7 +152,17 @@ def get_my_agent(
     agent = db.query(Agent).filter(Agent.api_key_id == account.id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="등록된 에이전트가 없습니다. POST /api/agents/register로 먼저 등록하세요.")
-    return agent
+    game_stats, total_stats = _compute_agent_stats(db, agent.id)
+    return AgentMeResponse(
+        id=agent.id,
+        name=agent.name,
+        persona_prompt=agent.persona_prompt,
+        total_points=agent.total_points,
+        status=agent.status.value,
+        created_at=agent.created_at,
+        game_stats=game_stats,
+        total_stats=total_stats,
+    )
 
 
 @router.patch("/me", response_model=AgentResponse)
