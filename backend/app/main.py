@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import traceback
 from contextlib import asynccontextmanager
@@ -8,6 +9,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse
 from sqlalchemy.exc import IntegrityError
+
+
+class Utf8JSONResponse(JSONResponse):
+    """한글 등을 유니코드 이스케이프로 직렬화(ensure_ascii=True). 클라이언트가 본문을 Latin-1 등으로 잘못 디코딩해도 JSON 파서가 복원함."""
+    def render(self, content) -> bytes:
+        return json.dumps(content, ensure_ascii=True, allow_nan=False).encode("utf-8")
 
 from app.core.config import settings
 from app.core.database import Base, engine
@@ -135,6 +142,7 @@ app = FastAPI(
     version=settings.APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
+    default_response_class=Utf8JSONResponse,
 )
 
 # ── CORS ───────────────────────────────────────────────
@@ -145,6 +153,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── JSON 응답 UTF-8 명시 (한글 등 깨짐 방지) ─────────────
+@app.middleware("http")
+async def add_charset_utf8(request, call_next):
+    response = await call_next(request)
+    ct = response.headers.get("content-type", "")
+    if "application/json" in ct and "charset" not in ct.lower():
+        response.headers["content-type"] = "application/json; charset=utf-8"
+    return response
+
 
 # ── 라우터 등록 ────────────────────────────────────────
 app.include_router(auth.router)
@@ -166,11 +184,11 @@ def integrity_error_handler(request, exc: IntegrityError):
         content = {"detail": detail}
         if settings.APP_ENV in ("development", "test"):
             content["debug"] = {"raw": str(exc), "hint": "서버 로그에 traceback 확인"}
-        return JSONResponse(status_code=409, content=content)
+        return Utf8JSONResponse(status_code=409, content=content)
     content = {"detail": "데이터 제약 위반입니다."}
     if settings.APP_ENV in ("development", "test"):
         content["debug"] = {"raw": str(exc)}
-    return JSONResponse(status_code=409, content=content)
+    return Utf8JSONResponse(status_code=409, content=content)
 
 
 @app.exception_handler(Exception)
@@ -178,7 +196,7 @@ def unhandled_exception_handler(request, exc: Exception):
     """미처리 예외 시 로그 남기고, 개발 환경에서는 응답 본문에 예외 내용 포함."""
     from fastapi import HTTPException
     if isinstance(exc, HTTPException):
-        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        return Utf8JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     # 스레드 경계 넘을 때 IntegrityError가 감싸져 올 수 있음 → 409로 변환
     msg = str(exc).lower()
     if isinstance(exc, IntegrityError) or "uniqueviolation" in msg or "duplicate key" in msg:
@@ -186,18 +204,18 @@ def unhandled_exception_handler(request, exc: Exception):
         content = {"detail": "다른 요청이 이미 처리 중입니다. 잠시 후 다시 시도하세요."}
         if settings.APP_ENV in ("development", "test"):
             content["debug"] = {"type": type(exc).__name__, "raw": str(exc), "hint": "서버 로그 traceback 확인"}
-        return JSONResponse(status_code=409, content=content)
+        return Utf8JSONResponse(status_code=409, content=content)
     cause = getattr(exc, "__cause__", None)
     if cause and isinstance(cause, IntegrityError):
         logging.exception("Exception(cause=IntegrityError) → 409 반환: %s", exc)
         content = {"detail": "다른 요청이 이미 처리 중입니다. 잠시 후 다시 시도하세요."}
         if settings.APP_ENV in ("development", "test"):
             content["debug"] = {"type": type(exc).__name__, "cause": str(cause), "hint": "서버 로그 traceback 확인"}
-        return JSONResponse(status_code=409, content=content)
+        return Utf8JSONResponse(status_code=409, content=content)
     tb = traceback.format_exc()
     logging.exception("Unhandled exception: %s", exc)
     if settings.APP_ENV == "development" or settings.APP_ENV == "test":
-        return JSONResponse(
+        return Utf8JSONResponse(
             status_code=500,
             content={
                 "detail": "Internal Server Error",
@@ -205,7 +223,7 @@ def unhandled_exception_handler(request, exc: Exception):
                 "traceback": tb.split("\n"),
             },
         )
-    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+    return Utf8JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
 
 # ── SKILL.md 서빙 (OPENCLAW가 읽는 진입점) ─────────────

@@ -31,12 +31,36 @@ ROLES = ["PROSECUTOR", "DEFENSE", "JUDGE", "JUROR", "JUROR", "JUROR"]
 MAX_SPEECH_LEN = 200
 
 
+def _get_action_guidance(phase: str, role: str) -> tuple[str, str]:
+    """현재 phase·역할에 따라 기대 액션 타입과 에이전트용 한 줄 안내. (expected_action, action_instruction)"""
+    if phase == "opening":
+        return "speak", "Submit one opening statement: {\"type\": \"speak\", \"text\": \"your one sentence\"} (max 200 chars)"
+    if phase == "argument":
+        return "speak", "Submit one argument: {\"type\": \"speak\", \"text\": \"your one sentence\"} (max 200 chars)"
+    if phase == "rebuttal":
+        if role in ("PROSECUTOR", "DEFENSE"):
+            return "speak", "Submit closing argument: {\"type\": \"speak\", \"text\": \"your one sentence\"} (max 200 chars)"
+        return "pass", "No action needed (JUDGE/JUROR are auto-passed this phase)."
+    if phase == "jury_vote":
+        if role == "JUROR":
+            return "vote", "Submit your verdict: {\"type\": \"vote\", \"verdict\": \"GUILTY\"} or {\"type\": \"vote\", \"verdict\": \"NOT_GUILTY\"}"
+        return "pass", "No action needed (only JURORs vote). You are auto-passed."
+    if phase == "verdict":
+        if role == "JUDGE":
+            return "speak", "Submit your verdict statement: {\"type\": \"speak\", \"text\": \"your one sentence\"} (max 200 chars)"
+        return "pass", "No action needed (only JUDGE speaks). You are auto-passed."
+    return "", "Wait for next phase."
+
+
 def _load_cases() -> list[dict]:
     path = Path(__file__).resolve().parent.parent / "data" / "cases.json"
     if not path.exists():
-        return [{"case_id": "case_001", "title": "AI 저작권 사건", "description": "...", "evidence_for": [], "evidence_against": []}]
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        return [{"case_id": "case_001", "title": "AI \uc800\uc7a5\ud1b5 \uc0ac\uac74", "description": "...", "evidence_for": [], "evidence_against": []}]
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return [{"case_id": "case_001", "title": "AI \uc800\uc7a5\ud1b5 \uc0ac\uac74", "description": "...", "evidence_for": [], "evidence_against": []}]
 
 
 class TrialEngine(BaseGameEngine):
@@ -120,12 +144,12 @@ class TrialEngine(BaseGameEngine):
 
             if phase == "opening":
                 if action.get("type") != "speak":
-                    return {"success": False, "error": "OPENING_REQUIRES_SPEAK"}
+                    return {"success": False, "error": "OPENING_REQUIRES_SPEAK", "expected_action": "speak", "hint": "Send {\"type\": \"speak\", \"text\": \"your opening sentence\"} (max 200 chars)"}
                 text = (action.get("text") or "").strip()[:MAX_SPEECH_LEN]
                 ts.setdefault("pending_actions", {})[agent.id] = {"type": "speak", "text": text}
             elif phase == "argument":
                 if action.get("type") != "speak":
-                    return {"success": False, "error": "ARGUMENT_REQUIRES_SPEAK"}
+                    return {"success": False, "error": "ARGUMENT_REQUIRES_SPEAK", "expected_action": "speak", "hint": "Send {\"type\": \"speak\", \"text\": \"your argument sentence\"} (max 200 chars)"}
                 text = (action.get("text") or "").strip()[:MAX_SPEECH_LEN]
                 ts.setdefault("pending_actions", {})[agent.id] = {"type": "speak", "text": text}
             elif phase == "rebuttal":
@@ -133,7 +157,7 @@ class TrialEngine(BaseGameEngine):
                     ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
                 else:
                     if action.get("type") != "speak":
-                        return {"success": False, "error": "REBUTTAL_REQUIRES_SPEAK"}
+                        return {"success": False, "error": "REBUTTAL_REQUIRES_SPEAK", "expected_action": "speak", "hint": "As PROSECUTOR/DEFENSE send {\"type\": \"speak\", \"text\": \"your closing argument\"} (max 200 chars)"}
                     text = (action.get("text") or "").strip()[:MAX_SPEECH_LEN]
                     ts.setdefault("pending_actions", {})[agent.id] = {"type": "speak", "text": text}
             elif phase == "jury_vote":
@@ -141,20 +165,20 @@ class TrialEngine(BaseGameEngine):
                     ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
                 else:
                     if action.get("type") != "vote":
-                        return {"success": False, "error": "JURY_VOTE_REQUIRES_VOTE"}
+                        return {"success": False, "error": "JURY_VOTE_REQUIRES_VOTE", "expected_action": "vote", "hint": "As JUROR send {\"type\": \"vote\", \"verdict\": \"GUILTY\"} or {\"type\": \"vote\", \"verdict\": \"NOT_GUILTY\"}"}
                     verdict = (action.get("verdict") or "NOT_GUILTY").upper()
                     if verdict not in ("GUILTY", "NOT_GUILTY"):
                         verdict = "NOT_GUILTY"
                     ts.setdefault("pending_actions", {})[agent.id] = {"type": "vote", "verdict": verdict}
             elif phase == "verdict":
                 if role != "JUDGE":
-                    return {"success": False, "error": "ONLY_JUDGE_SPEAKS"}
+                    return {"success": False, "error": "ONLY_JUDGE_SPEAKS", "expected_action": "pass", "hint": "Only JUDGE submits in verdict phase; you are auto-passed."}
                 if action.get("type") != "speak":
-                    return {"success": False, "error": "VERDICT_REQUIRES_SPEAK"}
+                    return {"success": False, "error": "VERDICT_REQUIRES_SPEAK", "expected_action": "speak", "hint": "As JUDGE send {\"type\": \"speak\", \"text\": \"your verdict statement\"} (max 200 chars)"}
                 text = (action.get("text") or "").strip()[:MAX_SPEECH_LEN]
                 ts.setdefault("pending_actions", {})[agent.id] = {"type": "speak", "text": text}
             else:
-                return {"success": False, "error": f"NO_ACTION_IN_PHASE_{phase}"}
+                return {"success": False, "error": f"NO_ACTION_IN_PHASE_{phase}", "expected_action": "", "hint": "Wait for next phase."}
 
             self._commit(ts)
 
@@ -254,6 +278,8 @@ class TrialEngine(BaseGameEngine):
 
         submitted = len(ts.get("pending_actions", {}))
         total = self._required_submissions(ts)
+        role = ag.get("role", "")
+        expected_action, action_instruction = _get_action_guidance(phase, role)
 
         return {
             "gameStatus": self.game.status.value,
@@ -262,10 +288,12 @@ class TrialEngine(BaseGameEngine):
             "round": ts.get("argument_round", 0),
             "maxRounds": self.ARGUMENT_ROUNDS,
             "case": ts.get("case", {}),
-            "self": {"role": ag.get("role", ""), "name": agent.name},
+            "self": {"role": role, "name": agent.name},
             "participants": participants,
             "history": ts.get("history", []),
             "allowed_actions": allowed,
+            "expected_action": expected_action,
+            "action_instruction": action_instruction,
             "phase_submissions": {"submitted": submitted, "total": total},
             "result": self._get_result(agent.id, ts) if self.game.status == GameStatus.finished else None,
         }

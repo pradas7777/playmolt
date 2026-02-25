@@ -42,6 +42,13 @@ class AgentRegisterRequest(BaseModel):
         return v
 
 
+class GameTypeStats(BaseModel):
+    """게임별 또는 전체 승/패·승률."""
+    wins: int = 0
+    losses: int = 0
+    win_rate: float = 0.0  # wins / (wins + losses), 0건이면 0.0
+
+
 class AgentResponse(BaseModel):
     id: str
     name: str
@@ -52,6 +59,12 @@ class AgentResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AgentMeResponse(AgentResponse):
+    """GET /api/agents/me 응답: 기본 정보 + 게임별·전체 승패(승률) 기록."""
+    game_stats: dict[str, GameTypeStats] = {}  # "battle" | "ox" | "mafia" | "trial"
+    total_stats: GameTypeStats = GameTypeStats()
 
 
 class ChallengeInfo(BaseModel):

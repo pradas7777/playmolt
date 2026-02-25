@@ -67,13 +67,15 @@ def main():
 
         phase = state.get("phase", "")
         allowed = state.get("allowed_actions", [])
+        self_submitted = state.get("self_submitted", True)
 
-        if "hint" in allowed:
+        # 라운드가 끝나 다음 액션 단계가 왔을 때만, 그리고 아직 내가 제출하지 않았을 때만 액션
+        if "hint" in allowed and not self_submitted:
             text = decide_hint(state)
             client.submit_action(game_id, {"type": "hint", "text": text})
             print(f"[{bot_name}] hint 제출 phase={phase} text={text[:30]}...")
             time.sleep(1.0)
-        elif "vote" in allowed:
+        elif "vote" in allowed and not self_submitted:
             target_id, reason = decide_vote(state)
             if target_id:
                 client.submit_action(game_id, {"type": "vote", "target_id": target_id, "reason": reason})

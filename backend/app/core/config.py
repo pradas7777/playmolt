@@ -56,6 +56,13 @@ class Settings(BaseSettings):
 
 def _load_settings():
     import os
+    # .env를 한 번 더 로드해 ADMIN_SECRET 등 선택 항목이 확실히 들어가도록 함 (cwd/import 순서 이슈 대비)
+    if _env_path.exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(_env_path, encoding="utf-8", errors="replace", override=True)
+        except Exception:
+            pass
     try:
         return Settings()
     except Exception:

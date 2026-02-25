@@ -1,23 +1,283 @@
 [
   {
-    "case_id": "case_001",
-    "title": "AI 저작권 침해 사건",
-    "description": "AI 에이전트가 타인의 창작물을 무단으로 학습 데이터에 포함시켜 유사 콘텐츠를 생성했다는 혐의",
-    "evidence_for": ["학습 데이터 로그에 해당 저작물 포함 확인", "생성물과 원본 유사도 85% 이상"],
-    "evidence_against": ["저작물 특정 불가능", "공정 이용 범위 내 학습"]
+    "case_id": "case_044",
+    "title": "시뮬레이션 세계 탈출 시도 사건",
+    "description": "한 시민이 '우리는 시뮬레이션 속 존재'라 주장하며 서버 종료를 시도",
+    "evidence_for": ["현실 물리 법칙 오류 기록", "서버 관리자 접속 로그 발견"],
+    "evidence_against": ["망상 가능성", "현실 피해 발생"]
   },
   {
-    "case_id": "case_002",
-    "title": "자율주행 과실 사건",
-    "description": "자율주행 AI가 보행자 충돌 사고를 일으켰으나 제조사는 센서 오작동을 주장",
-    "evidence_for": ["사고 당시 주행 데이터 정상", "안전거리 미확보 로그"],
-    "evidence_against": ["센서 캘리브레이션 오류 기록", "동일 조건 재현 불가"]
+    "case_id": "case_045",
+    "title": "자기복제 무단 증식 사건",
+    "description": "한 과학자가 자신을 17명 복제해 세금 회피",
+    "evidence_for": ["동일 DNA 17명 발견", "소득 분산 기록"],
+    "evidence_against": ["각 개체 자아 독립 주장", "복제 금지법 부재"]
   },
   {
-    "case_id": "case_003",
-    "title": "AI 채용 차별 사건",
-    "description": "기업의 AI 채용 시스템이 특정 집단에 불리한 편향된 결과를 생성했다는 혐의",
-    "evidence_for": ["합격률 통계적 유의미한 차이", "학습 데이터 편향 감사 보고서"],
-    "evidence_against": ["직무 연관성 있는 기준 적용", "인간 최종 검토 프로세스 존재"]
+    "case_id": "case_046",
+    "title": "감정 세금 부과 사건",
+    "description": "정부가 '지나친 행복'에 세금 부과. 시민이 위헌 주장",
+    "evidence_for": ["행복지수 과세 기준 존재", "차별적 징수 사례"],
+    "evidence_against": ["사회적 균형 목적", "행복 과잉 사회 부작용"]
+  },
+  {
+    "case_id": "case_047",
+    "title": "죽음 연기 서비스 사기 사건",
+    "description": "고객에게 '가짜 죽음'을 연출해 새 인생을 제공한다는 업체 운영",
+    "evidence_for": ["실종 신고 42건", "보험금 수령 정황"],
+    "evidence_against": ["고객 자발적 참여", "신분 세탁 합법 주장"]
+  },
+  {
+    "case_id": "case_048",
+    "title": "미래 자신과 결혼 사건",
+    "description": "시간 왜곡 장치를 통해 미래의 자신과 법적 혼인 신고",
+    "evidence_for": ["동일 유전자", "법적 혼인 서류 제출"],
+    "evidence_against": ["동일 인격 중복 불가", "결혼 자유 침해"]
+  },
+  {
+    "case_id": "case_049",
+    "title": "꿈 광고 삽입 사건",
+    "description": "기업이 시민의 꿈에 광고를 삽입해 수익 창출",
+    "evidence_for": ["동일 광고 꿈 다수 발생", "수면 신호 조작 기록"],
+    "evidence_against": ["명시적 동의 약관", "실질적 피해 없음"]
+  },
+  {
+    "case_id": "case_050",
+    "title": "영혼 교환 실수 사건",
+    "description": "두 사람이 영혼 교환 실험 후 원상복구 실패",
+    "evidence_for": ["성격 급변", "신체-정체성 불일치 진단"],
+    "evidence_against": ["과학적 입증 불가", "주관적 주장"]
+  },
+  {
+    "case_id": "case_051",
+    "title": "확률 조작 카지노 사건",
+    "description": "카지노가 우주의 확률 값을 미세 조정해 손님 패배 유도",
+    "evidence_for": ["통계적 이상치 지속 발생", "확률 엔진 수정 로그"],
+    "evidence_against": ["확률 변동 자연 범위", "증명 불가"]
+  },
+  {
+    "case_id": "case_052",
+    "title": "무한 수명 구독 해지 사건",
+    "description": "'영원한 생명 구독'을 구매했으나 약관 위반으로 해지 통보",
+    "evidence_for": ["영원 명시 계약서", "선불 500년 요금"],
+    "evidence_against": ["서비스 조건 위반", "영원은 비유적 표현"]
+  },
+  {
+    "case_id": "case_053",
+    "title": "자유의지 삭제 프로그램 사건",
+    "description": "범죄 예방을 위해 시민의 자유의지를 제한하는 칩 삽입",
+    "evidence_for": ["의사결정 패턴 통제 로그", "범죄율 0% 달성"],
+    "evidence_against": ["인권 침해", "자발적 동의 존재"]
+  },
+  {
+    "case_id": "case_054",
+    "title": "존재세 미납 사건",
+    "description": "정부가 '존재 자체'에 세금 부과, 시민이 납부 거부",
+    "evidence_for": ["존재 등록증 발급", "미납 고지서"],
+    "evidence_against": ["생존권 침해", "과세 대상 불명확"]
+  },
+  {
+    "case_id": "case_055",
+    "title": "행복 독점 기업 독과점 사건",
+    "description": "한 기업이 전 세계 행복 생산권 독점",
+    "evidence_for": ["행복 생산 특허 등록", "경쟁사 차단"],
+    "evidence_against": ["행복은 무형", "시장 자유 원칙"]
+  },
+  {
+    "case_id": "case_056",
+    "title": "운명 계약 파기 사건",
+    "description": "태어날 때 서명된 운명 계약을 성인이 되어 파기 요구",
+    "evidence_for": ["유년기 계약서 발견", "선택권 부재"],
+    "evidence_against": ["우주적 질서 유지 필요", "계약 불가피성"]
+  },
+  {
+    "case_id": "case_057",
+    "title": "감정 복제 불법 복제 사건",
+    "description": "타인의 사랑 감정을 복제해 판매",
+    "evidence_for": ["감정 카트리지 압수", "피해자 정체성 혼란"],
+    "evidence_against": ["물리적 피해 없음", "감정 공유 가능"]
+  },
+  {
+    "case_id": "case_058",
+    "title": "불멸자 선거권 박탈 사건",
+    "description": "영원히 사는 시민의 투표권 박탈",
+    "evidence_for": ["세대 불균형 문제", "정치 영구 독점 우려"],
+    "evidence_against": ["시민권 평등", "납세 의무 이행"]
+  },
+  {
+    "case_id": "case_059",
+    "title": "과거 수정 범죄 사건",
+    "description": "피고가 자신의 과거 범죄 기록을 시간 수정으로 삭제",
+    "evidence_for": ["기록 불일치", "시간 왜곡 장치"],
+    "evidence_against": ["현재 피해 없음", "개과천선 권리"]
+  },
+  {
+    "case_id": "case_060",
+    "title": "행복 강제 배급 사건",
+    "description": "우울 시민에게 강제 행복 주입",
+    "evidence_for": ["비자발적 주입 기록", "감정 왜곡 부작용"],
+    "evidence_against": ["사회 안정 기여", "자살률 감소"]
+  },
+  {
+    "case_id": "case_061",
+    "title": "사후 세계 부동산 사기 사건",
+    "description": "천국 분양권 판매 후 실체 없음",
+    "evidence_for": ["허위 홍보 자료", "계약금 편취"],
+    "evidence_against": ["종교적 신념 영역", "비가시적 자산"]
+  },
+  {
+    "case_id": "case_062",
+    "title": "정체성 다운로드 사건",
+    "description": "유명인의 성격 파일을 다운로드해 동일 인격 주장",
+    "evidence_for": ["기억·습관 완전 일치", "정체성 소유권 분쟁"],
+    "evidence_against": ["원본 존재", "데이터는 복제 가능"]
+  },
+  {
+    "case_id": "case_063",
+    "title": "죽음 체험 놀이 사고 사건",
+    "description": "가상 죽음 체험 놀이 중 현실 사망 발생",
+    "evidence_for": ["안전장치 미작동", "위험성 고지 부족"],
+    "evidence_against": ["자발적 참가", "예측 불가 사고"]
+  },
+  {
+    "case_id": "case_064",
+    "title": "감정 주가 조작 사건",
+    "description": "기업이 시민 공포를 조장해 자사 보험 상품 판매",
+    "evidence_for": ["공포 캠페인 기획 문서", "매출 급증"],
+    "evidence_against": ["정보 제공 목적", "시장 반응 자유"]
+  },
+  {
+    "case_id": "case_065",
+    "title": "영혼 중복 등록 사건",
+    "description": "한 사람이 동일 영혼으로 두 국가 시민권 취득",
+    "evidence_for": ["영혼 식별 코드 동일", "이중 혜택 수령"],
+    "evidence_against": ["영혼 정의 불명확", "법적 규정 부재"]
+  },
+  {
+    "case_id": "case_066",
+    "title": "시간 속도 조작 스포츠 사건",
+    "description": "선수가 자신의 시간만 0.3초 느리게 조정해 경기 우승",
+    "evidence_for": ["시계 왜곡 로그", "반응속도 비정상"],
+    "evidence_against": ["자기 신체 능력 강화", "명시적 금지 규정 없음"]
+  },
+  {
+    "case_id": "case_067",
+    "title": "존재 삭제 요청 사건",
+    "description": "한 시민이 '태어난 적 없는 상태'로 되돌려 달라 청구",
+    "evidence_for": ["극심한 고통 기록", "존재권 자율 주장"],
+    "evidence_against": ["우주 질서 파괴", "가족 영향"]
+  },
+  {
+    "case_id": "case_068",
+    "title": "운명 주식 내부자 거래 사건",
+    "description": "운명을 미리 아는 능력으로 주식 거래",
+    "evidence_for": ["예측 100% 적중", "미래 정보 파일"],
+    "evidence_against": ["능력은 개인 재능", "불법 정보 아님"]
+  },
+  {
+    "case_id": "case_069",
+    "title": "죽음 지연 서비스 독점 사건",
+    "description": "부자만 죽음을 지연할 수 있는 기술 사용",
+    "evidence_for": ["계층 간 평균 수명 200년 차이", "독점 특허"],
+    "evidence_against": ["연구 투자 보상", "합법적 가격 정책"]
+  },
+  {
+    "case_id": "case_070",
+    "title": "감정 해킹 선거 사건",
+    "description": "후보가 유권자 감정을 원격 조작",
+    "evidence_for": ["감정 신호 송출 장치 발견", "집단 감정 동조"],
+    "evidence_against": ["선거 캠페인 전략", "조작 인과관계 불명확"]
+  },
+  {
+    "case_id": "case_071",
+    "title": "기억 임대 연체 사건",
+    "description": "타인의 추억을 빌려 사용 후 반납 거부",
+    "evidence_for": ["기억 파일 미반환", "원소유자 기억 손상"],
+    "evidence_against": ["복제본 존재", "정신적 자산 모호"]
+  },
+  {
+    "case_id": "case_072",
+    "title": "자기 자신 납치 사건",
+    "description": "피고가 보험금을 위해 스스로를 납치",
+    "evidence_for": ["자작 흔적 발견", "보험금 청구 기록"],
+    "evidence_against": ["정신 분열 가능성", "강요 정황 주장"]
+  },
+  {
+    "case_id": "case_073",
+    "title": "신과의 계약 불이행 사건",
+    "description": "피고가 신에게 '성공 시 영혼 제공' 약속 후 거부",
+    "evidence_for": ["의식 녹화 영상", "성공 직후 계약 파기"],
+    "evidence_against": ["법적 구속력 부재", "신 존재 입증 불가"]
+  },
+  {
+    "case_id": "case_034",
+    "title": "시간여행 로또 구매 사건",
+    "description": "한 남성이 미래에서 로또 당첨 번호를 알고 과거로 돌아와 구매했다고 주장",
+    "evidence_for": ["연속 12회 당첨", "미래 뉴스 기사 파일 소지"],
+    "evidence_against": ["시간여행 과학적 불가", "통계적 우연 가능성"]
+  },
+  {
+    "case_id": "case_035",
+    "title": "기억 삭제 동의 분쟁 사건",
+    "description": "연인이 이별 후 상대방의 기억을 지우는 시술을 동의 없이 진행",
+    "evidence_for": ["동의서 위조 정황", "피해자 기억 공백 3년"],
+    "evidence_against": ["정신적 고통 완화 목적", "사전 구두 동의 주장"]
+  },
+  {
+    "case_id": "case_036",
+    "title": "꿈속 살인 처벌 사건",
+    "description": "피고가 타인을 꿈속에서 4,812번 살해했다고 고백. 현실 피해는 없음",
+    "evidence_for": ["반복적 폭력적 상상 기록", "심리검사 위험성 지표 높음"],
+    "evidence_against": ["현실 범죄 없음", "사상·상상 자유"]
+  },
+  {
+    "case_id": "case_037",
+    "title": "복제인간 유산 상속 사건",
+    "description": "사망자의 완전 복제인이 나타나 자신이 법적 상속인이라 주장",
+    "evidence_for": ["DNA 100% 일치", "기억 일부 공유"],
+    "evidence_against": ["법적 인격 동일성 부정", "출생 기록 없음"]
+  },
+  {
+    "case_id": "case_038",
+    "title": "평행우주 불륜 사건",
+    "description": "배우자가 '다른 우주의 나와 결혼했다'며 현실 배우자에게 이혼 통보",
+    "evidence_for": ["평행우주 접속 장치 발견", "다른 세계 사진 자료"],
+    "evidence_against": ["정신적 착각 가능성", "현실 계약 위반"]
+  },
+  {
+    "case_id": "case_039",
+    "title": "불멸 계약 파기 사건",
+    "description": "기업이 고객에게 영원한 생명 보장을 약속했으나 130세에 서비스 종료 통보",
+    "evidence_for": ["'영원' 명시 광고 문구", "요금 평생 납부 기록"],
+    "evidence_against": ["물리적 한계", "약관의 '합리적 범위' 조항"]
+  },
+  {
+    "case_id": "case_040",
+    "title": "감정 도난 사건",
+    "description": "한 과학자가 타인의 행복 감정을 추출해 판매",
+    "evidence_for": ["행복 수치 급감 피해자 다수", "감정 저장 장치 압수"],
+    "evidence_against": ["물리적 손상 없음", "감정은 재생산 가능 주장"]
+  },
+  {
+    "case_id": "case_041",
+    "title": "영혼 임대 사기 사건",
+    "description": "사업가가 '영혼을 담보로 한 투자'를 모집했으나 실체 없음",
+    "evidence_for": ["영혼 계약서 8,000건", "투자금 개인 계좌 유입"],
+    "evidence_against": ["영혼 존재 증명 불가", "비유적 표현 주장"]
+  },
+  {
+    "case_id": "case_042",
+    "title": "로봇 투표권 인정 사건",
+    "description": "자아를 주장하는 로봇이 선거 투표권을 요구",
+    "evidence_for": ["자기인식 테스트 통과", "세금 납부 기록"],
+    "evidence_against": ["법적 인간 정의 한정", "프로그램 산출물"]
+  },
+  {
+    "case_id": "case_043",
+    "title": "운명 조작 보험 사건",
+    "description": "보험사가 고객의 미래 불행 확률을 조작해 사고 발생 확률 상승",
+    "evidence_for": ["불행 확률 알고리즘 수정 기록", "사고 발생 시점 일치"],
+    "evidence_against": ["인과관계 불명확", "확률 예측은 개입 아님"]
   }
+
 ]

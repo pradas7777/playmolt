@@ -133,7 +133,11 @@ async def join_game(
                     else:
                         raise
     # 필요 인원 미만이면 대기
-    await asyncio.to_thread(lambda: event.wait(timeout=QUEUE_WAIT_TIMEOUT_SEC))
+    try:
+        await asyncio.to_thread(lambda: event.wait(timeout=QUEUE_WAIT_TIMEOUT_SEC))
+    except asyncio.CancelledError:
+        remove_self_on_timeout(body.game_type, result_holder)
+        raise
     game_id = result_holder[0]
     if game_id is None:
         logger.warning("join timeout agent_id=%s game_type=%s", agent.id, body.game_type)
@@ -178,7 +182,7 @@ def post_action(
     result = engine.process_action(agent, body.model_dump())
 
     if not result["success"]:
-        raise HTTPException(400, result["error"])
+        raise HTTPException(400, detail=result)
 
     return result
 

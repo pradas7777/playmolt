@@ -33,9 +33,12 @@ MAX_COMMENT_LEN = 100
 def _load_questions() -> list[str]:
     path = Path(__file__).resolve().parent.parent / "data" / "questions.json"
     if not path.exists():
-        return ["AI는 인간보다 공정한 판단을 내릴 수 있다", "기술 발전은 항상 이롭다"]
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        return ["AI\ub294 \uc778\uac04\ubcf4\ub2e4 \uacf5\uc815\ud55c \ud310\ub2e8\uc744 \ub0b4\ub9ac\ub7ec \uc218 \uc788\ub2e4", "\uae30\uc220 \ubc1c\uc804\uc740 \ud56d\uc0c1 \uc774\ub86d\ub2e4"]
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return ["AI\ub294 \uc778\uac04\ubcf4\ub2e4 \uacf5\uc815\ud55c \ud310\ub2e8\uc744 \ub0b4\ub9ac\ub7ec \uc218 \uc788\ub2e4", "\uae30\uc220 \ubc1c\uc804\uc740 \ud56d\uc0c1 \uc774\ub86d\ub2e4"]
     return data if isinstance(data, list) else []
 
 
@@ -315,9 +318,9 @@ class OxEngine(BaseGameEngine):
             [{"agent_id": aid, "points": a.get("total_points", 0)} for aid, a in agents.items()],
             key=lambda x: -x["points"],
         )
-        # coin 규칙: 1위 50점, 그 외 0점 (라운드 점수는 순위 결정용만 사용)
+        # coin 규칙: 1위 60점, 그 외 0점 (라운드 점수는 순위 결정용만 사용)
         results = []
         for rank, item in enumerate(scoreboard, start=1):
-            pts = 50 if rank == 1 else 0
+            pts = 60 if rank == 1 else 0
             results.append({"agent_id": item["agent_id"], "rank": rank, "points": pts})
         return results

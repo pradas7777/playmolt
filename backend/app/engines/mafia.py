@@ -33,15 +33,83 @@ MAX_HINT_LEN = 100
 MAX_REASON_LEN = 100
 
 
+def _fix_word_encoding(s: str) -> str:
+    """DB에 깨져 저장된 한글 복구 시도 (여러 잘못된 해석 조합)."""
+    if not s or not isinstance(s, str):
+        return s or ""
+    # 이미 올바른 UTF-8이면 그대로 반환
+    try:
+        if "\ufffd" not in s and s.encode("utf-8").decode("utf-8") == s:
+            return s
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+    # UTF-8 바이트가 다른 인코딩으로 디코딩된 경우: s.encode(enc) -> 원래 바이트, .decode("utf-8") -> 복구
+    for enc in ("latin-1", "cp1252", "cp949", "iso-8859-1", "euc-kr"):
+        try:
+            fixed = s.encode(enc).decode("utf-8")
+            if "\ufffd" not in fixed and 0 < len(fixed) <= 30:
+                return fixed
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            continue
+    # 반대: UTF-8로 인코딩된 바이트를 잘못된 인코딩으로 디코딩한 경우 (일부 환경)
+    try:
+        b = s.encode("utf-8")
+        fixed = b.decode("cp949")
+        if "\ufffd" not in fixed and 0 < len(fixed) <= 30:
+            return fixed
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+    return s
+
+
+def _is_valid_utf8_word(w: str) -> bool:
+    """한글/영문 단어가 유효한 UTF-8인지 (깨짐 없음)."""
+    if not w or "\ufffd" in w:
+        return False
+    try:
+        w.encode("utf-8").decode("utf-8")
+        return True
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return False
+
+
+# 폴백 단어쌍: \u 이스케이프로 고정해 소스 파일이 CP949 등으로 저장돼도 한글이 깨지지 않도록 함
+_DEFAULT_WORD_PAIRS_JSON = (
+    '[{"citizen_word":"\uc0ac\uacfc","wolf_word":"\ub0b4"},'
+    '{"citizen_word":"\ud2f0\uc790","wolf_word":"\ud30c\uc2a4\ud0c0"}]'
+)
+
+
 def _load_word_pairs() -> list[dict]:
     path = Path(__file__).resolve().parent.parent / "data" / "word_pairs.json"
     if not path.exists():
-        return [
-            {"citizen_word": "사과", "wolf_word": "배"},
-            {"citizen_word": "피자", "wolf_word": "파스타"},
-        ]
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        return json.loads(_DEFAULT_WORD_PAIRS_JSON)
+    data = None
+    for enc in ("utf-8", "utf-8-sig", "cp949"):
+        try:
+            with open(path, "r", encoding=enc) as f:
+                data = json.load(f)
+            break
+        except UnicodeDecodeError:
+            continue
+        except (json.JSONDecodeError, OSError) as e:
+            _logger.warning("word_pairs.json 로드 실패 (%s): %s", enc, e)
+            break
+    if not isinstance(data, list) or not data:
+        return json.loads(_DEFAULT_WORD_PAIRS_JSON)
+    # 깨진 단어가 있으면 해당 항목 제외 또는 폴백 사용
+    out = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        cw = (item.get("citizen_word") or "").strip()
+        ww = (item.get("wolf_word") or "").strip()
+        if _is_valid_utf8_word(cw) and _is_valid_utf8_word(ww):
+            out.append({"citizen_word": cw, "wolf_word": ww})
+    if not out:
+        _logger.warning("word_pairs.json에 유효한 UTF-8 단어쌍 없음, 폴백 사용")
+        return json.loads(_DEFAULT_WORD_PAIRS_JSON)
+    return out
 
 
 class MafiaEngine(BaseGameEngine):
@@ -72,8 +140,14 @@ class MafiaEngine(BaseGameEngine):
 
         pairs = _load_word_pairs()
         pair = random.choice(pairs)
-        citizen_word = pair["citizen_word"]
-        wolf_word = pair["wolf_word"]
+        citizen_word = (pair.get("citizen_word") or "").strip()
+        wolf_word = (pair.get("wolf_word") or "").strip()
+        if not _is_valid_utf8_word(citizen_word) or not _is_valid_utf8_word(wolf_word):
+            fallback = json.loads(_DEFAULT_WORD_PAIRS_JSON)
+            pair = fallback[0]
+            citizen_word = pair["citizen_word"]
+            wolf_word = pair["wolf_word"]
+            _logger.warning("마피아 단어 검증 실패, 폴백 단어쌍 사용")
         agent_ids = [p.agent_id for p in participants]
         random.shuffle(agent_ids)
         wolf_count = self.game.config.get("wolf_count", 1)
@@ -223,9 +297,12 @@ class MafiaEngine(BaseGameEngine):
         elif phase == "vote":
             allowed = ["vote"]
 
-        submitted = len(ms.get("pending_actions", {}))
+        pending = ms.get("pending_actions", {})
+        submitted = len(pending)
         total = len(agents) if agents else len(participants)
+        self_submitted = agent.id in pending
 
+        secret_word = _fix_word_encoding(ag.get("secret_word", "") or "")
         return {
             "gameStatus": self.game.status.value,
             "gameType": "mafia",
@@ -235,12 +312,13 @@ class MafiaEngine(BaseGameEngine):
                 "id": agent.id,
                 "name": agent.name,
                 "role": ag.get("role", "CITIZEN"),
-                "secretWord": ag.get("secret_word", ""),
+                "secretWord": secret_word,
             },
             "participants": participant_list,
             "history": ms.get("history", []),
             "allowed_actions": allowed,
             "phase_submissions": {"submitted": submitted, "total": total},
+            "self_submitted": self_submitted,
             "result": self._get_result(agent.id, ms) if phase == "result" or phase == "end" else None,
         }
 
@@ -260,8 +338,8 @@ class MafiaEngine(BaseGameEngine):
             "points": pts,
             "winner": winner,
             "eliminated_role": ms.get("eliminated_role"),
-            "citizen_word": ms.get("citizen_word"),
-            "wolf_word": ms.get("wolf_word"),
+            "citizen_word": _fix_word_encoding(ms.get("citizen_word") or ""),
+            "wolf_word": _fix_word_encoding(ms.get("wolf_word") or ""),
         }
 
     def check_game_end(self) -> bool:

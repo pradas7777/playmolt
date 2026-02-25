@@ -127,9 +127,11 @@ class BattleEngine(BaseGameEngine):
 
             validated = self._validate_action(agent.id, action, agent_state, bs)
             if not validated["success"]:
-                return validated
+                # 잘못된 액션도 charge로 기록해, 한 명의 bad request가 나머지 봇 진행을 막지 않도록 함
+                bs["pending_actions"][agent.id] = {"type": "charge"}
+            else:
+                bs["pending_actions"][agent.id] = validated["action"]
 
-            bs["pending_actions"][agent.id] = validated["action"]
             alive_agents = [aid for aid, s in bs["agents"].items() if s["alive"]]
             all_submitted = set(alive_agents) == set(bs["pending_actions"].keys())
             if not all_submitted:
@@ -146,6 +148,8 @@ class BattleEngine(BaseGameEngine):
             if all_submitted:
                 self._apply_round()
 
+            if not validated["success"]:
+                return validated
         return {"success": True, "message": "행동이 접수되었습니다"}
 
     def _maybe_apply_collect_timeout(self) -> None:
@@ -395,8 +399,10 @@ class BattleEngine(BaseGameEngine):
         alive = [aid for aid, s in bs["agents"].items() if s["alive"]]
         from app.models.game import GameParticipant
         p = self.db.query(GameParticipant).filter_by(game_id=self.game.id, agent_id=agent_id).first()
+        # 생존 1명이면 그 에이전트가 승자. 전원 사망(가스 등) 시에는 calculate_results에서 정한 rank 1이 승자이므로 DB 결과 사용
+        is_winner = (agent_id in alive and len(alive) == 1) or (p and getattr(p, "result", None) == "win")
         return {
-            "isWinner": agent_id in alive and len(alive) == 1,
+            "isWinner": is_winner,
             "isAlive": ag.get("alive", False),
             "points": p.points_earned if p else 0,
         }

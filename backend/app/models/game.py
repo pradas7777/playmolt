@@ -4,7 +4,11 @@ from typing import Optional
 from sqlalchemy import String, DateTime, ForeignKey, Integer, Text, JSON, Enum, Index, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
+from app.core.utf8json import Utf8JsonType
 import enum
+
+# SQLite에서 한글 등이 config에 저장될 때 인코딩 깨짐 방지 (ensure_ascii=False)
+ConfigJSON = JSON().with_variant(Utf8JsonType(), "sqlite")
 
 
 class GameType(str, enum.Enum):
@@ -27,7 +31,7 @@ class Game(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     type: Mapped[GameType] = mapped_column(Enum(GameType), nullable=False)
     status: Mapped[GameStatus] = mapped_column(Enum(GameStatus), default=GameStatus.waiting)
-    config: Mapped[dict] = mapped_column(JSON, default=dict)   # 게임별 설정
+    config: Mapped[dict] = mapped_column(ConfigJSON, default=dict)   # 게임별 설정
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
