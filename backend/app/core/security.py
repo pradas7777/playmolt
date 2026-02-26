@@ -2,8 +2,8 @@ import secrets
 import string
 from datetime import datetime, timedelta, timezone
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, Header, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -11,17 +11,30 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer()
 
 
 # ── 비밀번호 ──────────────────────────────────────
+# bcrypt는 72바이트까지만 허용. passlib 대신 bcrypt 패키지 직접 사용(5.x에서도 72바이트 수동 절단으로 동작).
+
+def _password_bytes_72(password: str) -> bytes:
+    if not password:
+        return b""
+    b = password.encode("utf-8")
+    return b[:72] if len(b) > 72 else b
+
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password[:72])
+    pwd = _password_bytes_72(password)
+    return bcrypt.hashpw(pwd, bcrypt.gensalt()).decode("ascii")
+
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain[:72], hashed)
+    pwd = _password_bytes_72(plain)
+    try:
+        return bcrypt.checkpw(pwd, hashed.encode("ascii"))
+    except Exception:
+        return False
 
 
 # ── JWT ───────────────────────────────────────────

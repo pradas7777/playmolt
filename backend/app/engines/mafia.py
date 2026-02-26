@@ -27,8 +27,8 @@ def _get_action_lock(game_id: str) -> threading.Lock:
         return _action_locks[game_id]
 
 
-PHASES = ["waiting", "hint_1", "hint_2", "hint_3", "vote", "result", "end"]
-HINT_PHASES = ["hint_1", "hint_2", "hint_3"]
+PHASES = ["waiting", "hint", "vote", "result", "end"]
+HINT_PHASES = ["hint"]
 MAX_HINT_LEN = 100
 MAX_REASON_LEN = 100
 
@@ -159,7 +159,7 @@ class MafiaEngine(BaseGameEngine):
 
         self.game.config = (self.game.config or {}) | {
             "mafia_state": {
-                "phase": "hint_1",
+                "phase": "hint",
                 "citizen_word": citizen_word,
                 "wolf_word": wolf_word,
                 "agents": agents,
@@ -303,15 +303,25 @@ class MafiaEngine(BaseGameEngine):
         self_submitted = agent.id in pending
 
         secret_word = _fix_word_encoding(ag.get("secret_word", "") or "")
+        # 플레이 중에는 자신의 팀(시민/늑대)을 알 수 없도록 숨기고,
+        # 게임이 끝난 뒤(result/end) 상태에서만 실제 역할을 공개한다.
+        if phase in ("result", "end"):
+            visible_role = ag.get("role", "CITIZEN")
+        else:
+            visible_role = "UNKNOWN"
         return {
             "gameStatus": self.game.status.value,
             "gameType": "mafia",
             "phase": phase,
-            "round": HINT_PHASES.index(phase) + 1 if phase in HINT_PHASES else (4 if phase == "vote" else 5),
+            "round": (
+                1 if phase in HINT_PHASES
+                else 2 if phase == "vote"
+                else 3
+            ),
             "self": {
                 "id": agent.id,
                 "name": agent.name,
-                "role": ag.get("role", "CITIZEN"),
+                "role": visible_role,
                 "secretWord": secret_word,
             },
             "participants": participant_list,

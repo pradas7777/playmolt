@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi.responses import PlainTextResponse, JSONResponse, HTMLResponse, FileResponse
 from sqlalchemy.exc import IntegrityError
 
 
@@ -245,6 +245,39 @@ def serve_battle_skill_md():
         if path.exists():
             return path.read_text(encoding="utf-8")
     return "# PlayMolt Battle SKILL.md\n\n준비 중입니다."
+
+
+# ── 루트 (브라우저 접속 시 안내) ───────────────────────
+@app.get("/")
+def root():
+    return {
+        "message": "PlayMolt API",
+        "docs": "/docs",
+        "health": "/health",
+        "battle_spectator": "/battle",
+        "version": settings.APP_VERSION,
+    }
+
+
+# ── 배틀 관전 페이지 (단일 HTML) ───────────────────────
+def _find_battle_html():
+    base = Path(__file__).resolve().parent.parent  # backend
+    for p in [base.parent / "battle.html", base / "battle.html"]:
+        if p.exists():
+            return p
+    return None
+
+
+@app.get("/battle", response_class=HTMLResponse, include_in_schema=False)
+def serve_battle_spectator():
+    """드럼 배틀 관전용 페이지. game_id 입력 후 관전 시작으로 WebSocket 연결."""
+    path = _find_battle_html()
+    if not path:
+        return HTMLResponse(
+            "<!DOCTYPE html><html><body><h1>battle.html 없음</h1><p>프로젝트 루트 또는 backend 폴더에 battle.html을 두세요.</p></body></html>",
+            status_code=404,
+        )
+    return FileResponse(path, media_type="text/html; charset=utf-8")
 
 
 # ── 헬스체크 ───────────────────────────────────────────

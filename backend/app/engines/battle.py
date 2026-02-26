@@ -47,6 +47,8 @@ class BattleEngine(BaseGameEngine):
 
     MAX_AGENTS = 4
     MAX_ROUNDS = 15
+    # 관전/실시간 느낌: 4명 모인 뒤·라운드마다 20초간 "에이전트 답 대기" 표시 후 collect 시작
+    COUNTDOWN_DISPLAY_SEC = 20
     # collect 단계에서 이 시간(초) 안에 액션 안 낸 생존자는 charge로 처리해 라운드 진행 (외부 에이전트 이탈 대비)
     COLLECT_TIMEOUT_SEC = 45
     GAS_RANDOM_START = 8
@@ -102,8 +104,8 @@ class BattleEngine(BaseGameEngine):
         bs["agents"] = agents
         bs["action_order"] = agent_ids
         bs["round"] = 1
-        bs["phase"] = "collect"
-        bs["collect_entered_at"] = time.time()
+        bs["phase"] = "countdown"
+        bs["countdown_ends_at"] = time.time() + self.COUNTDOWN_DISPLAY_SEC
         self._commit(bs)
 
     def process_action(self, agent: Agent, action: dict) -> dict:
@@ -120,6 +122,8 @@ class BattleEngine(BaseGameEngine):
                 return {"success": False, "error": "AGENT_NOT_IN_GAME"}
             if not agent_state["alive"]:
                 return {"success": False, "error": "AGENT_DEAD"}
+            if bs["phase"] == "countdown":
+                return {"success": False, "error": "COUNTDOWN_WAIT"}
             if bs["phase"] != "collect":
                 return {"success": False, "error": "NOT_COLLECTION_PHASE"}
             if agent.id in bs["pending_actions"]:
@@ -151,6 +155,25 @@ class BattleEngine(BaseGameEngine):
             if not validated["success"]:
                 return validated
         return {"success": True, "message": "행동이 접수되었습니다"}
+
+    def _maybe_advance_countdown(self) -> None:
+        """countdown 단계에서 20초 경과 시 collect로 전환. get_state 호출 시 진행."""
+        if self.game.status != GameStatus.running:
+            return
+        lock = _get_action_lock(self.game.id)
+        with lock:
+            self.db.refresh(self.game)
+            bs = self._bs()
+            if bs.get("phase") != "countdown":
+                return
+            ends_at = bs.get("countdown_ends_at") or 0
+            if time.time() < ends_at:
+                return
+            bs["phase"] = "collect"
+            bs["collect_entered_at"] = time.time()
+            if "countdown_ends_at" in bs:
+                del bs["countdown_ends_at"]
+            self._commit(bs)
 
     def _maybe_apply_collect_timeout(self) -> None:
         """collect 단계에서 타임아웃 시 미제출자를 charge로 채우고 라운드 적용. get_state 호출 시에도 진행되도록."""
@@ -195,6 +218,13 @@ class BattleEngine(BaseGameEngine):
         bs = self._bs()
         bs["phase"] = "apply"
 
+        # 이번 라운드 시작 시 살아 있던 에이전트 목록을 기록해 둔다.
+        # 게임이 끝났는데 아무도 살아남지 않은 경우, 이 집합을 기준으로
+        # 공격 횟수가 가장 많은 봇을 최종 승자로 결정한다.
+        bs["last_round_alive_ids"] = [
+            aid for aid, s in bs["agents"].items() if s["alive"]
+        ]
+
         order = [a for a in bs["action_order"] if bs["agents"][a]["alive"]]
         defenders = {aid for aid, act in bs["pending_actions"].items() if act["type"] == "defend"}
 
@@ -235,10 +265,38 @@ class BattleEngine(BaseGameEngine):
         bs = self._apply_gas(bs)
         bs["history"].append({"round": bs["round"], "log": bs["round_log"]})
 
-        alive = [s for s in bs["agents"].values() if s["alive"]]
+        alive = [(aid, s) for aid, s in bs["agents"].items() if s["alive"]]
         game_over = len(alive) <= 1 or bs["round"] >= self.MAX_ROUNDS
 
         if game_over:
+            # 아무도 살아남지 않은 경우: 마지막 라운드 시작 시 살아 있던 봇들 중
+            # 공격 횟수가 가장 많았던 봇을 최종 승자로 선택한다.
+            if len(alive) == 0:
+                candidate_ids = bs.get("last_round_alive_ids") or []
+                # 방어적 코드: 혹시 last_round_alive_ids 가 비어 있으면 전체 에이전트 사용
+                if not candidate_ids:
+                    candidate_ids = list(bs["agents"].keys())
+                # 아직 agents 에 남아 있는 id 만 대상으로
+                candidate_ids = [aid for aid in candidate_ids if aid in bs["agents"]]
+                if candidate_ids:
+                    max_atk = max(bs["agents"][aid]["attack_count"] for aid in candidate_ids)
+                    winner_ids = [
+                        aid for aid in candidate_ids
+                        if bs["agents"][aid]["attack_count"] == max_atk
+                    ]
+                    winner_id = random.choice(winner_ids)
+                    # 최종 승자는 반드시 alive 로, HP 는 최소 1 로 만든다.
+                    bs["agents"][winner_id]["alive"] = True
+                    if bs["agents"][winner_id]["hp"] <= 0:
+                        bs["agents"][winner_id]["hp"] = 1
+                    bs["round_log"].append({
+                        "type": "final_winner_by_attack_count",
+                        "agent_id": winner_id,
+                        "attack_count": max_atk,
+                        "candidates": candidate_ids,
+                        "reason": "no_survivor_in_final_round",
+                    })
+
             bs["phase"] = "end"
             self._commit(bs)
             self.finish()
@@ -246,8 +304,8 @@ class BattleEngine(BaseGameEngine):
             bs["round"] += 1
             bs["pending_actions"] = {}
             bs["round_log"] = []
-            bs["phase"] = "collect"
-            bs["collect_entered_at"] = time.time()
+            bs["phase"] = "countdown"
+            bs["countdown_ends_at"] = time.time() + self.COUNTDOWN_DISPLAY_SEC
             alive_order = [a for a in bs["action_order"] if bs["agents"][a]["alive"]]
             if alive_order:
                 bs["action_order"] = alive_order[1:] + [alive_order[0]]
@@ -267,25 +325,19 @@ class BattleEngine(BaseGameEngine):
             )
 
     def _process_deaths(self, bs):
+        """
+        라운드/가스 적용 중 HP 가 0 이하가 된 봇들을 모두 죽은 상태로 만든다.
+        동시 패배 시 생존 룰은 더 이상 라운드 단위에서 사용하지 않고,
+        게임 종료 시점에만 last_round_alive_ids / attack_count 를 기준으로
+        최종 승자를 결정한다.
+        """
         dead = [(aid, s) for aid, s in bs["agents"].items() if s["alive"] and s["hp"] <= 0]
         if not dead:
             return bs
-        if len(dead) == 1:
-            bs["agents"][dead[0][0]]["alive"] = False
-            bs["agents"][dead[0][0]]["hp"] = 0
-            bs["round_log"].append({"type": "death", "agent_id": dead[0][0]})
-        else:
-            max_atk = max(s["attack_count"] for _, s in dead)
-            survivors = [(aid, s) for aid, s in dead if s["attack_count"] == max_atk]
-            survivor_id, _ = random.choice(survivors)
-            for aid, _ in dead:
-                if aid != survivor_id:
-                    bs["agents"][aid]["alive"] = False
-                    bs["agents"][aid]["hp"] = 0
-                    bs["round_log"].append({"type": "death", "agent_id": aid, "reason": "simultaneous_defeat"})
-            bs["agents"][survivor_id]["hp"] = 1
-            bs["round_log"].append({"type": "simultaneous_survival", "agent_id": survivor_id,
-                                    "reason": "random" if len(survivors) > 1 else "attack_count"})
+        for aid, _ in dead:
+            bs["agents"][aid]["alive"] = False
+            bs["agents"][aid]["hp"] = 0
+            bs["round_log"].append({"type": "death", "agent_id": aid})
         return bs
 
     def _apply_gas(self, bs):
@@ -309,6 +361,11 @@ class BattleEngine(BaseGameEngine):
         # 다른 요청에서 commit한 라운드 진행 반영을 위해 항상 DB에서 최신 상태 로드
         self.db.refresh(self.game)
         bs = self.game.config.get("battle_state") or {}
+        # countdown → collect 전환: 20초 지나면 get_state 호출 시 collect로 넘김
+        if self.game.status == GameStatus.running and bs.get("phase") == "countdown":
+            self._maybe_advance_countdown()
+            self.db.refresh(self.game)
+            bs = self.game.config.get("battle_state") or {}
         # collect 타임아웃: state만 폴링하는 봇이 있어도 미제출자 charge 처리 후 라운드 진행
         if self.game.status == GameStatus.running and bs.get("phase") == "collect":
             self._maybe_apply_collect_timeout()
