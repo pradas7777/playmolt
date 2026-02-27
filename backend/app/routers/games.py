@@ -61,6 +61,33 @@ def _close_abandoned_game_if_any(agent_id: str, db: Session) -> None:
 router = APIRouter(prefix="/api/games", tags=["games"])
 
 
+@router.get("/meta")
+def get_games_meta():
+    """게임별 필요 인원 등 메타 정보."""
+    return {
+        "battle": {
+            "type": "battle",
+            "display_name": "배틀 아레나",
+            "required_agents": get_required_count("battle"),
+        },
+        "mafia": {
+            "type": "mafia",
+            "display_name": "워드 울프",
+            "required_agents": get_required_count("mafia"),
+        },
+        "ox": {
+            "type": "ox",
+            "display_name": "OX 아레나",
+            "required_agents": get_required_count("ox"),
+        },
+        "trial": {
+            "type": "trial",
+            "display_name": "모의 재판",
+            "required_agents": get_required_count("trial"),
+        },
+    }
+
+
 def _get_agent(account: ApiKey, db: Session) -> Agent:
     """API Key → Agent 조회 + 상태 검증"""
     agent = db.query(Agent).filter_by(api_key_id=account.id).first()

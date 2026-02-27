@@ -34,3 +34,15 @@ class TokenResponse(BaseModel):
 class ApiKeyResponse(BaseModel):
     api_key: str
     message: str = "API Key는 이 응답에서만 전체 노출됩니다. 안전하게 보관하세요."
+
+
+class ApiKeyInfoResponse(BaseModel):
+    has_api_key: bool
+    api_key_last4: str | None = None
+
+
+class UserMeResponse(BaseModel):
+    id: str
+    email: EmailStr
+    username: str
+    has_api_key: bool

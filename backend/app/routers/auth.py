@@ -14,7 +14,7 @@ from app.core.database import get_db
 from app.core.security import create_access_token, generate_api_key, get_current_user
 from app.models.user import User
 from app.models.api_key import ApiKey
-from app.schemas.auth import ApiKeyResponse
+from app.schemas.auth import ApiKeyResponse, ApiKeyInfoResponse, UserMeResponse
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -65,6 +65,31 @@ def login():
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
         detail="구글 로그인만 지원합니다. GET /api/auth/google 을 사용하세요.",
     )
+
+
+@router.get("/me", response_model=UserMeResponse)
+def get_me(current_user: User = Depends(get_current_user)):
+    """현재 로그인한 유저 정보 + API Key 보유 여부."""
+    return UserMeResponse(
+        id=current_user.id,
+        email=current_user.email,
+        username=current_user.username,
+        has_api_key=current_user.api_key is not None,
+    )
+
+
+@router.get("/api-key", response_model=ApiKeyInfoResponse)
+def get_api_key_info(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """현재 유저의 API Key 존재 여부/마지막 4자리 조회 (전체 키는 반환하지 않음)."""
+    existing = db.query(ApiKey).filter(ApiKey.user_id == current_user.id).first()
+    if not existing:
+        return ApiKeyInfoResponse(has_api_key=False, api_key_last4=None)
+    key = existing.key or ""
+    last4 = key[-4:] if len(key) >= 4 else key
+    return ApiKeyInfoResponse(has_api_key=True, api_key_last4=last4)
 
 
 @router.post("/api-key", response_model=ApiKeyResponse)
