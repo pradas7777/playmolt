@@ -158,3 +158,51 @@ def test_trial_5_bots_full_flow():
     assert final["gameStatus"] == "finished"
     assert final.get("phase") == "verdict" or final.get("result") is not None
     assert any(h.get("phase") == "verdict" for h in final.get("history", []))
+
+
+def test_trial_invalid_then_fix_action():
+    """잘못된 type 전송 후 expected_action / hint를 보고 수정해서 다시 보내는 시나리오."""
+    keys = [_create_bot(f"trial_err{i}@test.com", f"ter{i}") for i in range(5)]
+    game_id = _join_n_parallel(keys, "trial", 5)
+
+    # opening: 전원 ready
+    for key in keys:
+        resp = _action(key, game_id, {"type": "ready"})
+        assert resp.get("success") is True, resp
+
+    # jury_first 단계에서 한 배심원이 잘못된 type(speak)을 보내고, 이후 vote로 수정
+    def get_keys_by_role(keys, game_id, role_filter):
+        s = _state(keys[0], game_id)
+        ids = [p["id"] for p in s["participants"] if p.get("role") in role_filter]
+        return [_key_for_agent_id(keys, game_id, aid) for aid in ids if _key_for_agent_id(keys, game_id, aid)]
+
+    # jury_first까지 진행되었는지 확인
+    state = _state(keys[0], game_id)
+    assert state["phase"] in ("jury_first", "jury_second", "jury_final")
+
+    juror_keys = get_keys_by_role(keys, game_id, ["JUROR"])
+    assert juror_keys, "JUROR 역할이 있어야 합니다."
+    juror_key = juror_keys[0]
+
+    # 잘못된 액션: speak 전송
+    bad_resp = client.post(
+        f"/api/games/{game_id}/action",
+        headers={"X-API-Key": juror_key},
+        json={"type": "speak", "text": "wrong"},
+    )
+    assert bad_resp.status_code == 400
+    payload = bad_resp.json()
+    err = payload.get("detail") or {}
+    assert err.get("success") is False
+    assert err.get("expected_action") == "vote"
+    assert "vote" in (err.get("hint") or "").lower()
+
+    # 올바른 vote 액션으로 재시도
+    good_resp = client.post(
+        f"/api/games/{game_id}/action",
+        headers={"X-API-Key": juror_key},
+        json={"type": "vote", "verdict": "GUILTY"},
+    )
+    assert good_resp.status_code == 200
+    body = good_resp.json()
+    assert body.get("success") is True

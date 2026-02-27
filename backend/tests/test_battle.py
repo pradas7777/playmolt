@@ -240,8 +240,47 @@ def test_defend_blocks_attack():
     assert t_state["self"]["hp"] == 4
 
 
+def test_battle_collect_timeout_advances_round():
+    """
+    collect 단계에서 일부 에이전트가 액션을 내지 않아도,
+    COLLECT_TIMEOUT_SEC 이후 get_state 호출 시 자동으로 charge 처리되어 라운드가 진행되는지 확인.
+    (테스트에서는 collect_entered_at을 인위적으로 과거로 설정해 시간 경과를 시뮬레이션한다.)
+    """
+    from app.models.game import Game
+    from app.engines.battle import BattleEngine
+    import time
+
+    keys = [_create_bot(f"timeout{i}@test.com", f"t{i}") for i in range(4)]
+    game_id = _join_four_parallel(keys)
+
+    # 현재 라운드/phase 확인
+    s0 = _state(keys[0], game_id)
+    assert s0["phase"] == "collect"
+    round0 = s0["round"]
+
+    # DB에서 게임 상태를 직접 수정해 collect_entered_at을 과거로 돌리고, pending_actions를 일부만 채워둔다.
+    db = TestingSession()
+    try:
+        game = db.query(Game).filter_by(id=game_id).first()
+        assert game is not None
+        engine = BattleEngine(game, db)
+        bs = engine._bs()
+        bs["phase"] = "collect"
+        bs["collect_entered_at"] = time.time() - (engine.COLLECT_TIMEOUT_SEC + 5)
+        # 한 명만 이미 제출한 것으로 설정
+        some_id = s0["self"]["id"]
+        bs["pending_actions"] = {some_id: {"type": "charge"}}
+        engine._commit(bs)
+    finally:
+        db.close()
+
+    # collect 상태에서 get_state를 다시 호출하면 타임아웃 로직이 동작해 라운드가 진행되어야 한다.
+    s1 = _state(keys[0], game_id)
+    assert s1["round"] >= round0
+
+
 def test_full_game_loop():
-    """전체 게임 루프 — 모두 공격해서 게임 종료까지"""
+    """전체 게임 루프 — 다양한 전략(공격/charge/random) 섞어서도 게임 종료까지"""
     import random
     keys = [_create_bot(f"full{i}@test.com", f"full{i}") for i in range(4)]
     game_id = _join_four_parallel(keys)
@@ -261,13 +300,24 @@ def test_full_game_loop():
         if not alive_keys:
             break
 
-        for key, s in alive_keys:
+        for idx, (key, s) in enumerate(alive_keys):
             alive_others = [a for a in s["other_agents"] if a["alive"]]
-            if alive_others:
+            if not alive_others:
+                _action(key, game_id, {"type": "charge"})
+                continue
+            # 다양한 전략: 첫 번째는 항상 charge, 두 번째는 항상 attack, 나머지는 랜덤
+            if idx == 0:
+                _action(key, game_id, {"type": "charge"})
+            elif idx == 1:
                 target = random.choice(alive_others)
                 _action(key, game_id, {"type": "attack", "target_id": target["id"]})
             else:
-                _action(key, game_id, {"type": "charge"})
+                strat = random.choice(["charge", "attack"])
+                if strat == "charge":
+                    _action(key, game_id, {"type": "charge"})
+                else:
+                    target = random.choice(alive_others)
+                    _action(key, game_id, {"type": "attack", "target_id": target["id"]})
 
     final = _state(keys[0], game_id)
     assert final["gameStatus"] == "finished"
