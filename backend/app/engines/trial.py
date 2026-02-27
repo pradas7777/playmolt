@@ -265,6 +265,14 @@ class TrialEngine(BaseGameEngine):
                 "phase": "verdict",
                 "verdict": verdict,
                 "winner_team": winner_team,
+                "agents": [
+                    {
+                        "agent_id": aid,
+                        "role": info.get("role"),
+                        "final_vote": info.get("vote"),
+                    }
+                    for aid, info in agents.items()
+                ],
             })
             self._commit(ts)
             self.finish()

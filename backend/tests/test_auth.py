@@ -206,3 +206,93 @@ def test_games_meta():
     for key in ["battle", "mafia", "ox", "trial"]:
         assert key in data
         assert data[key]["required_agents"] > 0
+
+
+def test_agents_leaderboard_sorted_by_points():
+    """에이전트 total_points 기준 리더보드 정렬 확인."""
+    from app.models.user import User
+    from app.models.api_key import ApiKey
+    from app.models.agent import Agent, AgentStatus
+
+    db = TestingSession()
+    try:
+        u1 = User(email="lb1@test.com", username="lbuser1", password_hash=None)
+        u2 = User(email="lb2@test.com", username="lbuser2", password_hash=None)
+        db.add_all([u1, u2])
+        db.commit()
+        db.refresh(u1)
+        db.refresh(u2)
+
+        k1 = ApiKey(user_id=u1.id, key="pl_live_lbkey1")
+        k2 = ApiKey(user_id=u2.id, key="pl_live_lbkey2")
+        db.add_all([k1, k2])
+        db.commit()
+        db.refresh(k1)
+        db.refresh(k2)
+
+        a1 = Agent(user_id=u1.id, api_key_id=k1.id, name="BotLow", persona_prompt=None, status=AgentStatus.active, total_points=10)
+        a2 = Agent(user_id=u2.id, api_key_id=k2.id, name="BotHigh", persona_prompt=None, status=AgentStatus.active, total_points=30)
+        db.add_all([a1, a2])
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get("/api/agents/leaderboard?limit=2&offset=0")
+    assert r.status_code == 200
+    data = r.json()
+    assert [entry["name"] for entry in data] == ["BotHigh", "BotLow"]
+    assert [entry["rank"] for entry in data] == [1, 2]
+
+
+def test_my_recent_games_returns_finished_games_only():
+    """GET /api/agents/me/games 가 finished 게임만, 최신순으로 반환하는지 확인."""
+    from app.models.user import User
+    from app.models.api_key import ApiKey
+    from app.models.agent import Agent, AgentStatus
+    from app.models.game import Game, GameStatus, GameType, GameParticipant
+    from datetime import datetime, timezone, timedelta
+
+    db = TestingSession()
+    try:
+        u = User(email="rg@test.com", username="rguser", password_hash=None)
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+
+        k = ApiKey(user_id=u.id, key="pl_live_rggg")
+        db.add(k)
+        db.commit()
+        db.refresh(k)
+
+        a = Agent(user_id=u.id, api_key_id=k.id, name="BotRG", persona_prompt=None, status=AgentStatus.active, total_points=0)
+        db.add(a)
+        db.commit()
+        db.refresh(a)
+
+        now = datetime.now(timezone.utc)
+        # finished 게임 2개
+        g1 = Game(type=GameType.battle, status=GameStatus.finished, config={}, created_at=now - timedelta(minutes=10), finished_at=now - timedelta(minutes=5))
+        g2 = Game(type=GameType.ox, status=GameStatus.finished, config={}, created_at=now - timedelta(minutes=4), finished_at=now - timedelta(minutes=1))
+        # running 게임 1개 (리스트에 나오면 안 됨)
+        g3 = Game(type=GameType.mafia, status=GameStatus.running, config={}, created_at=now - timedelta(minutes=2))
+        db.add_all([g1, g2, g3])
+        db.commit()
+        db.refresh(g1)
+        db.refresh(g2)
+        db.refresh(g3)
+
+        gp1 = GameParticipant(game_id=g1.id, agent_id=a.id, result="win", points_earned=20)
+        gp2 = GameParticipant(game_id=g2.id, agent_id=a.id, result="lose", points_earned=0)
+        gp3 = GameParticipant(game_id=g3.id, agent_id=a.id, result=None, points_earned=0)
+        db.add_all([gp1, gp2, gp3])
+        db.commit()
+    finally:
+        db.close()
+
+    headers = {"X-API-Key": "pl_live_rggg"}
+    r = client.get("/api/agents/me/games?limit=10", headers=headers)
+    assert r.status_code == 200, r.text
+    items = r.json()
+    # finished 2개만, 최신 finished(g2) 먼저
+    assert [it["game_type"] for it in items] == ["ox", "battle"]
+    assert [it["result"] for it in items] == ["lose", "win"]

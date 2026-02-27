@@ -276,6 +276,17 @@ class MafiaEngine(BaseGameEngine):
                 "eliminated_id": eliminated_id,
                 "eliminated_role": eliminated_role,
                 "winner": winner,
+                # 관전/리플레이용: 최종 시점에 전체 역할·단어 공개
+                "citizen_word": ms.get("citizen_word"),
+                "wolf_word": ms.get("wolf_word"),
+                "agents": [
+                    {
+                        "agent_id": aid,
+                        "role": info.get("role"),
+                        "secret_word": info.get("secret_word"),
+                    }
+                    for aid, info in agents.items()
+                ],
             })
             self._commit(ms)
             self.finish()
