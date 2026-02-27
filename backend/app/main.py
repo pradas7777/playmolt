@@ -82,11 +82,18 @@ def _init_db():
                 except Exception as e:
                     if "duplicate column name" not in str(e).lower():
                         logging.warning("games SQLite 인덱스 정리 중 오류(무시 가능): %s", e)
-            else:
+            elif "postgresql" in str(getattr(_engine, "url", "")).lower():
+                # PostgreSQL 전용: 컬럼 추가(이미 있으면 스킵). Oracle 등 다른 서버 DB는 create_all만 사용
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active'"))
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS challenge_token VARCHAR(255)"))
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS challenge_expires_at TIMESTAMP WITH TIME ZONE"))
-                conn.commit()
+                try:
+                    conn.execute(text("ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL"))
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    if "already" not in str(e).lower() and "null" not in str(e).lower():
+                        logging.warning("users.password_hash nullable 마이그레이션(무시 가능): %s", e)
     except UnicodeDecodeError as e:
         logging.warning("PostgreSQL 연결 시 인코딩 오류 → 로컬 SQLite로 전환합니다. (%s)", e)
         from sqlalchemy import create_engine

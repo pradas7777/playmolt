@@ -16,8 +16,8 @@ def _get_database_url() -> str:
                     line = line.strip()
                     if line.startswith("DATABASE_URL="):
                         value = line.split("=", 1)[1].strip().strip('"').strip("'")
-                        # Windows 로컬 실행 시 psycopg2 UnicodeDecodeError 회피: SQLite 사용
-                        if sys.platform == "win32" and "postgresql" in value.lower():
+                        # 서버(production)에서는 URL 그대로 사용. 로컬 Windows에서만 PostgreSQL→SQLite 폴백
+                        if sys.platform == "win32" and "postgresql" in value.lower() and getattr(settings, "APP_ENV", "") != "production":
                             return "sqlite:///./playmolt.db"
                         if "postgresql" in value.lower() and "?" not in value:
                             value = value.rstrip("/") + "?options=-c%20client_encoding%3DUTF8"
@@ -25,23 +25,28 @@ def _get_database_url() -> str:
         except Exception:
             pass
     url = getattr(settings, "DATABASE_URL", "")
-    if sys.platform == "win32" and "postgresql" in (url or "").lower():
+    if sys.platform == "win32" and "postgresql" in (url or "").lower() and getattr(settings, "APP_ENV", "") != "production":
         return "sqlite:///./playmolt.db"
     return url or "sqlite:///./playmolt.db"
 
 _database_url = _get_database_url()
 
-# PostgreSQL 시 클라이언트 인코딩 고정 (서버 응답 디코딩 오류 방지)
-if "postgresql" in _database_url.lower():
+# 다이얼렉트별 설정 (로컬 SQLite vs 서버용 PostgreSQL/Oracle 등)
+_is_sqlite = "sqlite" in _database_url.lower()
+_is_postgresql = "postgresql" in _database_url.lower()
+
+if _is_postgresql:
     import os
     os.environ["PGCLIENTENCODING"] = "UTF8"
 
-# SQLite: 동시 요청 시 락 방지 (check_same_thread=False + NullPool)
-_is_sqlite = "sqlite" in _database_url.lower()
 if _is_sqlite:
     _connect_args = {"check_same_thread": False}
-else:
+elif _is_postgresql:
     _connect_args = {"options": "-c client_encoding=UTF8"}
+else:
+    # Oracle 등 기타 서버 DB: 기본 connect_args만
+    _connect_args = {}
+
 _engine_kw: dict = {
     "connect_args": _connect_args,
     "pool_pre_ping": not _is_sqlite,

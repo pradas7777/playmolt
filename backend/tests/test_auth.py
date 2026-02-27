@@ -50,6 +50,14 @@ def _ensure_agent_challenge_columns(engine):
 
 
 @pytest.fixture(autouse=True)
+def use_auth_db():
+    """이 모듈 테스트 시 항상 auth용 test.db 사용 (다른 모듈이 get_db 덮어쓴 경우 대비)."""
+    app.dependency_overrides[get_db] = override_get_db
+    yield
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture(autouse=True)
 def clean_db():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -57,54 +65,42 @@ def clean_db():
     yield
 
 
-# ── 회원가입 ───────────────────────────────────────────
+# ── 구글 전용: 이메일 가입/로그인 비활성화 ─────────────────
 
-def test_register_success():
+def test_register_returns_501():
     r = client.post("/api/auth/register", json={
         "email": "test@playmolt.com",
         "username": "testuser",
         "password": "password123"
     })
-    assert r.status_code == 201
-    assert r.json()["data"]["email"] == "test@playmolt.com"
+    assert r.status_code == 501
+    assert "구글" in r.json()["detail"]
 
 
-def test_register_duplicate_email():
-    payload = {"email": "dup@playmolt.com", "username": "user1", "password": "password123"}
-    client.post("/api/auth/register", json=payload)
-    r = client.post("/api/auth/register", json={**payload, "username": "user2"})
-    assert r.status_code == 409
-
-
-# ── 로그인 + JWT ───────────────────────────────────────
-
-def test_login_success():
-    client.post("/api/auth/register", json={
-        "email": "login@playmolt.com", "username": "loginuser", "password": "password123"
-    })
+def test_login_returns_501():
     r = client.post("/api/auth/login", json={
-        "email": "login@playmolt.com", "password": "password123"
+        "email": "login@playmolt.com",
+        "password": "password123"
     })
-    assert r.status_code == 200
-    assert "access_token" in r.json()
-
-
-def test_login_wrong_password():
-    client.post("/api/auth/register", json={
-        "email": "pw@playmolt.com", "username": "pwuser", "password": "correct"
-    })
-    r = client.post("/api/auth/login", json={"email": "pw@playmolt.com", "password": "wrong"})
-    assert r.status_code == 401
+    assert r.status_code == 501
+    assert "구글" in r.json()["detail"]
 
 
 # ── API Key 발급 ───────────────────────────────────────
 
 def _get_token(email="key@playmolt.com", username="keyuser"):
-    client.post("/api/auth/register", json={
-        "email": email, "username": username, "password": "password123"
-    })
-    r = client.post("/api/auth/login", json={"email": email, "password": "password123"})
-    return r.json()["access_token"]
+    """구글 전용: DB에 유저 생성 후 JWT 발급 (테스트용)."""
+    from app.models.user import User
+    from app.core.security import create_access_token
+    db = TestingSession()
+    try:
+        user = User(email=email, username=username, password_hash=None)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return create_access_token(user.id)
+    finally:
+        db.close()
 
 
 def test_issue_api_key():

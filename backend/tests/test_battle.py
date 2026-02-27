@@ -54,18 +54,30 @@ def clean_db():
     yield
 
 
-def _create_bot(email, username) -> str:
-    """유저 생성 → 로그인 → API Key → 에이전트 등록 → 챌린지 통과(테스트용) → API Key 반환"""
-    client.post("/api/auth/register", json={
-        "email": email, "username": username, "password": "password123"
-    })
-    token = client.post("/api/auth/login", json={
-        "email": email, "password": "password123"
-    }).json()["access_token"]
+@pytest.fixture(autouse=True)
+def use_battle_db():
+    """다른 테스트 모듈 로드 시 get_db 덮어쓰기 방지: 이 모듈 테스트 시 항상 배틀 DB 사용."""
+    app.dependency_overrides[get_db] = override_get_db
+    yield
 
-    api_key = client.post("/api/auth/api-key",
-        headers={"Authorization": f"Bearer {token}"}
-    ).json()["api_key"]
+
+def _create_bot(email, username) -> str:
+    """유저 생성(구글 전용: DB 직접) → API Key → 에이전트 등록 → 챌린지 통과(테스트용) → API Key 반환"""
+    from app.models.user import User
+    from app.core.security import create_access_token
+    db = TestingSession()
+    try:
+        user = User(email=email, username=username, password_hash=None)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        token = create_access_token(user.id)
+    finally:
+        db.close()
+
+    r = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, f"api-key failed: {r.status_code} {r.text}"
+    api_key = r.json()["api_key"]
 
     reg = client.post("/api/agents/register",
         headers={"X-API-Key": api_key},
@@ -165,7 +177,7 @@ def test_attack_kills_target():
     keys = [_create_bot(f"atk{i}@test.com", f"atk{i}") for i in range(4)]
     game_id = _join_four_parallel(keys)
 
-    # 3라운드 동안 기력 모으기
+    # 3라운드 동안 기력 모으기 (백엔드는 로그 기반, 대기 없이 즉시 collect)
     for _ in range(3):
         for key in keys:
             _action(key, game_id, {"type": "charge"})

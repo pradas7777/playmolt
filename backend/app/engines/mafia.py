@@ -248,7 +248,6 @@ class MafiaEngine(BaseGameEngine):
             return
 
         if phase == "vote":
-            # 집계: 최다 득표자 1명 추방
             votes = [p.get("target_id") for p in pending.values() if p.get("type") == "vote" and p.get("target_id")]
             from collections import Counter
             count = Counter(votes)
@@ -259,17 +258,25 @@ class MafiaEngine(BaseGameEngine):
                 candidates = [tid for tid, c in count.items() if c == max_votes]
                 eliminated_id = random.choice(candidates) if len(candidates) > 1 else candidates[0]
             eliminated_role = agents.get(eliminated_id, {}).get("role", "CITIZEN")
-            # 동점이면 WOLF 승리 규칙: 동점 시에도 최다 득표 1명 추방. 추방자가 WOLF면 CITIZEN 승.
             winner = "CITIZEN" if eliminated_role == "WOLF" else "WOLF"
+            vote_detail = [
+                {"voter_id": aid, "target_id": p.get("target_id"), "reason": p.get("reason", "")}
+                for aid, p in pending.items()
+            ]
             ms["phase"] = "result"
             ms["eliminated_id"] = eliminated_id
             ms["eliminated_role"] = eliminated_role
             ms["winner"] = winner
-            ms["vote_detail"] = [
-                {"voter_id": aid, "target_id": p.get("target_id"), "reason": p.get("reason", "")}
-                for aid, p in pending.items()
-            ]
+            ms["vote_detail"] = vote_detail
             ms["pending_actions"] = {}
+            # 리플레이용 로그: 투표 결과
+            ms.setdefault("history", []).append({
+                "phase": "vote_result",
+                "vote_detail": vote_detail,
+                "eliminated_id": eliminated_id,
+                "eliminated_role": eliminated_role,
+                "winner": winner,
+            })
             self._commit(ms)
             self.finish()
             return

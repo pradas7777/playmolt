@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     APP_TITLE: str = "PlayMolt API"
     APP_VERSION: str = "0.1.0"
 
+    # Google OAuth (구글 로그인/회원가입)
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/auth/google/callback"
+    GOOGLE_AUTH_SUCCESS_REDIRECT: str = "http://localhost:3000"
+
     # Admin (관리자용: 현재 진행 중 게임 일괄 종료 등)
     ADMIN_SECRET: Optional[str] = None
 
@@ -87,6 +93,10 @@ def _load_settings():
             APP_VERSION=os.environ.get("APP_VERSION", "0.1.0"),
             ADMIN_SECRET=os.environ.get("ADMIN_SECRET") or None,
             ABANDONED_GAME_MINUTES=int(os.environ.get("ABANDONED_GAME_MINUTES", "30")),
+            GOOGLE_CLIENT_ID=os.environ.get("GOOGLE_CLIENT_ID") or None,
+            GOOGLE_CLIENT_SECRET=os.environ.get("GOOGLE_CLIENT_SECRET") or None,
+            GOOGLE_REDIRECT_URI=os.environ.get("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback"),
+            GOOGLE_AUTH_SUCCESS_REDIRECT=os.environ.get("GOOGLE_AUTH_SUCCESS_REDIRECT", "http://localhost:3000"),
         )
 
 

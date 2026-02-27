@@ -1,5 +1,6 @@
 """
-모의재판(Mock Trial) 엔진. 6인. opening → argument(3라운드) → rebuttal → jury_vote → verdict → end.
+모의재판(Mock Trial) 엔진. 5인(검사, 변호사, 배심원×3). 판사 없음.
+순서: opening(주제 공개) → jury_first → argument_1 → jury_second → argument_2 → jury_final → verdict(결과/승점).
 """
 import copy
 import json
@@ -27,28 +28,29 @@ def _get_action_lock(game_id: str) -> threading.Lock:
         return _action_locks[game_id]
 
 
-ROLES = ["PROSECUTOR", "DEFENSE", "JUDGE", "JUROR", "JUROR", "JUROR"]
+ROLES = ["PROSECUTOR", "DEFENSE", "JUROR", "JUROR", "JUROR"]
+MAX_AGENTS_TRIAL = 5
 MAX_SPEECH_LEN = 200
+
+# 페이즈 순서: opening → jury_first → argument_1 → jury_second → argument_2 → jury_final → verdict
+PHASES_JURY_VOTE = ("jury_first", "jury_second", "jury_final")
+PHASES_ARGUMENT = ("argument_1", "argument_2")
 
 
 def _get_action_guidance(phase: str, role: str) -> tuple[str, str]:
     """현재 phase·역할에 따라 기대 액션 타입과 에이전트용 한 줄 안내. (expected_action, action_instruction)"""
     if phase == "opening":
-        return "speak", "Submit one opening statement: {\"type\": \"speak\", \"text\": \"your one sentence\"} (max 200 chars)"
-    if phase == "argument":
-        return "speak", "Submit one argument: {\"type\": \"speak\", \"text\": \"your one sentence\"} (max 200 chars)"
-    if phase == "rebuttal":
-        if role in ("PROSECUTOR", "DEFENSE"):
-            return "speak", "Submit closing argument: {\"type\": \"speak\", \"text\": \"your one sentence\"} (max 200 chars)"
-        return "pass", "No action needed (JUDGE/JUROR are auto-passed this phase)."
-    if phase == "jury_vote":
+        return "ready", "Confirm you are ready: {\"type\": \"ready\"}"
+    if phase in PHASES_JURY_VOTE:
         if role == "JUROR":
             return "vote", "Submit your verdict: {\"type\": \"vote\", \"verdict\": \"GUILTY\"} or {\"type\": \"vote\", \"verdict\": \"NOT_GUILTY\"}"
         return "pass", "No action needed (only JURORs vote). You are auto-passed."
+    if phase in PHASES_ARGUMENT:
+        if role in ("PROSECUTOR", "DEFENSE"):
+            return "speak", "Submit your argument: {\"type\": \"speak\", \"text\": \"your one sentence\"} (max 200 chars)"
+        return "pass", "No action needed (only PROSECUTOR/DEFENSE speak). You are auto-passed."
     if phase == "verdict":
-        if role == "JUDGE":
-            return "speak", "Submit your verdict statement: {\"type\": \"speak\", \"text\": \"your one sentence\"} (max 200 chars)"
-        return "pass", "No action needed (only JUDGE speaks). You are auto-passed."
+        return "pass", "Trial ended. No action needed."
     return "", "Wait for next phase."
 
 
@@ -64,8 +66,7 @@ def _load_cases() -> list[dict]:
 
 
 class TrialEngine(BaseGameEngine):
-    MAX_AGENTS = 6
-    ARGUMENT_ROUNDS = 3
+    MAX_AGENTS = MAX_AGENTS_TRIAL  # 5: 검사, 변호사, 배심원×3
 
     def __init__(self, game: Game, db: Session):
         super().__init__(game, db)
@@ -83,7 +84,6 @@ class TrialEngine(BaseGameEngine):
                     "agents": {},
                     "pending_actions": {},
                     "history": [],
-                    "argument_round": 0,
                 }
             }
             flag_modified(self.game, "config")
@@ -98,7 +98,7 @@ class TrialEngine(BaseGameEngine):
         random.shuffle(roles)
         agents = {}
         for aid, role in zip(agent_ids, roles):
-            agents[aid] = {"role": role, "vote": None}
+            agents[aid] = {"role": role, "vote": None}  # vote는 최종(jury_final) 투표만 저장
 
         self.game.config = (self.game.config or {}) | {
             "trial_state": {
@@ -107,7 +107,6 @@ class TrialEngine(BaseGameEngine):
                 "agents": agents,
                 "pending_actions": {},
                 "history": [],
-                "argument_round": 0,
             }
         }
         flag_modified(self.game, "config")
@@ -143,46 +142,34 @@ class TrialEngine(BaseGameEngine):
             role = agents.get(agent.id, {}).get("role", "")
 
             if phase == "opening":
-                if action.get("type") != "speak":
-                    return {"success": False, "error": "OPENING_REQUIRES_SPEAK", "expected_action": "speak", "hint": "Send {\"type\": \"speak\", \"text\": \"your opening sentence\"} (max 200 chars)"}
-                text = (action.get("text") or "").strip()[:MAX_SPEECH_LEN]
-                ts.setdefault("pending_actions", {})[agent.id] = {"type": "speak", "text": text}
-            elif phase == "argument":
-                if action.get("type") != "speak":
-                    return {"success": False, "error": "ARGUMENT_REQUIRES_SPEAK", "expected_action": "speak", "hint": "Send {\"type\": \"speak\", \"text\": \"your argument sentence\"} (max 200 chars)"}
-                text = (action.get("text") or "").strip()[:MAX_SPEECH_LEN]
-                ts.setdefault("pending_actions", {})[agent.id] = {"type": "speak", "text": text}
-            elif phase == "rebuttal":
-                if role not in ("PROSECUTOR", "DEFENSE"):
-                    ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
-                else:
-                    if action.get("type") != "speak":
-                        return {"success": False, "error": "REBUTTAL_REQUIRES_SPEAK", "expected_action": "speak", "hint": "As PROSECUTOR/DEFENSE send {\"type\": \"speak\", \"text\": \"your closing argument\"} (max 200 chars)"}
-                    text = (action.get("text") or "").strip()[:MAX_SPEECH_LEN]
-                    ts.setdefault("pending_actions", {})[agent.id] = {"type": "speak", "text": text}
-            elif phase == "jury_vote":
+                if action.get("type") not in ("ready", "pass"):
+                    return {"success": False, "error": "OPENING_REQUIRES_READY", "expected_action": "ready", "hint": "Send {\"type\": \"ready\"} to continue."}
+                ts.setdefault("pending_actions", {})[agent.id] = {"type": "ready"}
+            elif phase in PHASES_JURY_VOTE:
                 if role != "JUROR":
                     ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
                 else:
                     if action.get("type") != "vote":
-                        return {"success": False, "error": "JURY_VOTE_REQUIRES_VOTE", "expected_action": "vote", "hint": "As JUROR send {\"type\": \"vote\", \"verdict\": \"GUILTY\"} or {\"type\": \"vote\", \"verdict\": \"NOT_GUILTY\"}"}
+                        return {"success": False, "error": "JURY_VOTE_REQUIRES_VOTE", "expected_action": "vote", "hint": "Send {\"type\": \"vote\", \"verdict\": \"GUILTY\"} or {\"type\": \"vote\", \"verdict\": \"NOT_GUILTY\"}"}
                     verdict = (action.get("verdict") or "NOT_GUILTY").upper()
                     if verdict not in ("GUILTY", "NOT_GUILTY"):
                         verdict = "NOT_GUILTY"
                     ts.setdefault("pending_actions", {})[agent.id] = {"type": "vote", "verdict": verdict}
+            elif phase in PHASES_ARGUMENT:
+                if role not in ("PROSECUTOR", "DEFENSE"):
+                    ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
+                else:
+                    if action.get("type") != "speak":
+                        return {"success": False, "error": "ARGUMENT_REQUIRES_SPEAK", "expected_action": "speak", "hint": "Send {\"type\": \"speak\", \"text\": \"your argument\"} (max 200 chars)"}
+                    text = (action.get("text") or "").strip()[:MAX_SPEECH_LEN]
+                    ts.setdefault("pending_actions", {})[agent.id] = {"type": "speak", "text": text}
             elif phase == "verdict":
-                if role != "JUDGE":
-                    return {"success": False, "error": "ONLY_JUDGE_SPEAKS", "expected_action": "pass", "hint": "Only JUDGE submits in verdict phase; you are auto-passed."}
-                if action.get("type") != "speak":
-                    return {"success": False, "error": "VERDICT_REQUIRES_SPEAK", "expected_action": "speak", "hint": "As JUDGE send {\"type\": \"speak\", \"text\": \"your verdict statement\"} (max 200 chars)"}
-                text = (action.get("text") or "").strip()[:MAX_SPEECH_LEN]
-                ts.setdefault("pending_actions", {})[agent.id] = {"type": "speak", "text": text}
+                return {"success": False, "error": "TRIAL_ENDED", "expected_action": "pass", "hint": "Trial has ended. No further actions."}
             else:
                 return {"success": False, "error": f"NO_ACTION_IN_PHASE_{phase}", "expected_action": "", "hint": "Wait for next phase."}
 
             self._commit(ts)
 
-            # 전원 제출 시 다음 단계 (역할별 필요 인원 고려)
             pending = ts.get("pending_actions", {})
             need = self._required_submissions(ts)
             if len(pending) >= need:
@@ -193,13 +180,15 @@ class TrialEngine(BaseGameEngine):
     def _required_submissions(self, ts: dict) -> int:
         phase = ts.get("phase", "")
         agents = ts.get("agents", {})
-        if phase == "rebuttal":
-            return sum(1 for a in agents.values() if a.get("role") in ("PROSECUTOR", "DEFENSE"))
-        if phase == "jury_vote":
+        if phase == "opening":
+            return len(agents)
+        if phase in PHASES_JURY_VOTE:
             return sum(1 for a in agents.values() if a.get("role") == "JUROR")
+        if phase in PHASES_ARGUMENT:
+            return sum(1 for a in agents.values() if a.get("role") in ("PROSECUTOR", "DEFENSE"))
         if phase == "verdict":
-            return 1
-        return len(agents)
+            return 0
+        return 0
 
     def _advance_phase(self):
         self.db.refresh(self.game)
@@ -209,48 +198,75 @@ class TrialEngine(BaseGameEngine):
         pending = ts.get("pending_actions", {})
 
         if phase == "opening":
-            ts["phase"] = "argument"
-            ts["argument_round"] = 1
+            ts["phase"] = "jury_first"
             ts["pending_actions"] = {}
-            ts.setdefault("history", []).append({"phase": "opening", "speeches": [{"agent_id": aid, "text": p.get("text", "")} for aid, p in pending.items()]})
+            ts.setdefault("history", []).append({"phase": "opening", "case_revealed": True})
             self._commit(ts)
             return
 
-        if phase == "argument":
-            rnd = ts.get("argument_round", 1)
-            ts.setdefault("history", []).append({"phase": "argument", "round": rnd, "speeches": [{"agent_id": aid, "text": p.get("text", "")} for aid, p in pending.items()]})
+        if phase == "jury_first":
+            ts.setdefault("history", []).append({
+                "phase": "jury_first",
+                "votes": [{"agent_id": aid, "verdict": p.get("verdict")} for aid, p in pending.items() if p.get("type") == "vote"]
+            })
+            ts["phase"] = "argument_1"
             ts["pending_actions"] = {}
-            if rnd >= self.ARGUMENT_ROUNDS:
-                ts["phase"] = "rebuttal"
-            else:
-                ts["argument_round"] = rnd + 1
             self._commit(ts)
             return
 
-        if phase == "rebuttal":
-            ts["phase"] = "jury_vote"
+        if phase == "argument_1":
+            ts.setdefault("history", []).append({
+                "phase": "argument_1",
+                "speeches": [{"agent_id": aid, "text": p.get("text", "")} for aid, p in pending.items() if p.get("type") == "speak"]
+            })
+            ts["phase"] = "jury_second"
             ts["pending_actions"] = {}
-            ts.setdefault("history", []).append({"phase": "rebuttal", "speeches": [{"agent_id": aid, "text": p.get("text", "")} for aid, p in pending.items() if p.get("type") == "speak"]})
             self._commit(ts)
             return
 
-        if phase == "jury_vote":
+        if phase == "jury_second":
+            ts.setdefault("history", []).append({
+                "phase": "jury_second",
+                "votes": [{"agent_id": aid, "verdict": p.get("verdict")} for aid, p in pending.items() if p.get("type") == "vote"]
+            })
+            ts["phase"] = "argument_2"
+            ts["pending_actions"] = {}
+            self._commit(ts)
+            return
+
+        if phase == "argument_2":
+            ts.setdefault("history", []).append({
+                "phase": "argument_2",
+                "speeches": [{"agent_id": aid, "text": p.get("text", "")} for aid, p in pending.items() if p.get("type") == "speak"]
+            })
+            ts["phase"] = "jury_final"
+            ts["pending_actions"] = {}
+            self._commit(ts)
+            return
+
+        if phase == "jury_final":
             votes = [p.get("verdict") for p in pending.values() if p.get("type") == "vote"]
             for aid, p in pending.items():
                 if p.get("type") == "vote" and aid in agents:
                     agents[aid]["vote"] = p.get("verdict")
             guilty_count = sum(1 for v in votes if v == "GUILTY")
-            not_guilty_count = len(votes) - guilty_count
             verdict = "GUILTY" if guilty_count >= 2 else "NOT_GUILTY"
             winner_team = "PROSECUTOR" if verdict == "GUILTY" else "DEFENSE"
+            ts.setdefault("history", []).append({
+                "phase": "jury_final",
+                "votes": [{"agent_id": aid, "verdict": p.get("verdict")} for aid, p in pending.items() if p.get("type") == "vote"]
+            })
             ts["phase"] = "verdict"
             ts["verdict"] = verdict
             ts["winner_team"] = winner_team
             ts["pending_actions"] = {}
+            # 리플레이용 로그: 최종 판정
+            ts.setdefault("history", []).append({
+                "phase": "verdict",
+                "verdict": verdict,
+                "winner_team": winner_team,
+            })
             self._commit(ts)
-            return
-
-        if phase == "verdict":
             self.finish()
             return
 
@@ -271,10 +287,14 @@ class TrialEngine(BaseGameEngine):
             participants.append({"id": p.agent_id, "name": a.name if a else p.agent_id, "role": ar.get("role", "")})
 
         allowed = []
-        if phase in ("opening", "argument", "rebuttal", "verdict"):
-            allowed = ["speak"]
-        elif phase == "jury_vote":
+        if phase == "opening":
+            allowed = ["ready"]
+        elif phase in PHASES_JURY_VOTE:
             allowed = ["vote"]
+        elif phase in PHASES_ARGUMENT:
+            allowed = ["speak"]
+        elif phase == "verdict":
+            allowed = []
 
         submitted = len(ts.get("pending_actions", {}))
         total = self._required_submissions(ts)
@@ -285,10 +305,8 @@ class TrialEngine(BaseGameEngine):
             "gameStatus": self.game.status.value,
             "gameType": "trial",
             "phase": phase,
-            "round": ts.get("argument_round", 0),
-            "maxRounds": self.ARGUMENT_ROUNDS,
             "case": ts.get("case", {}),
-            "self": {"role": role, "name": agent.name},
+            "self": {"id": agent.id, "role": role, "name": agent.name},
             "participants": participants,
             "history": ts.get("history", []),
             "allowed_actions": allowed,
@@ -302,9 +320,8 @@ class TrialEngine(BaseGameEngine):
         role = ts.get("agents", {}).get(agent_id, {}).get("role", "")
         winner_team = ts.get("winner_team", "")
         verdict = ts.get("verdict", "")
-        if role == "JUDGE":
-            pts = 10
-        elif winner_team == "PROSECUTOR" and (role == "PROSECUTOR" or (role == "JUROR" and ts.get("agents", {}).get(agent_id, {}).get("vote") == "GUILTY")):
+        # 3:0/2:1 유죄 → 검사 + 유죄 투표한 배심원만 승점. 3:0/2:1 무죄 → 변호 + 무죄 투표한 배심원만 승점.
+        if winner_team == "PROSECUTOR" and (role == "PROSECUTOR" or (role == "JUROR" and ts.get("agents", {}).get(agent_id, {}).get("vote") == "GUILTY")):
             pts = 20
         elif winner_team == "DEFENSE" and (role == "DEFENSE" or (role == "JUROR" and ts.get("agents", {}).get(agent_id, {}).get("vote") == "NOT_GUILTY")):
             pts = 20
@@ -324,10 +341,8 @@ class TrialEngine(BaseGameEngine):
         results = []
         for aid, ar in agents.items():
             role = ar.get("role", "")
-            vote = ar.get("vote")
-            if role == "JUDGE":
-                pts = 10
-            elif winner_team == "PROSECUTOR" and (role == "PROSECUTOR" or (role == "JUROR" and vote == "GUILTY")):
+            vote = ar.get("vote")  # 최종(jury_final) 투표만 저장됨
+            if winner_team == "PROSECUTOR" and (role == "PROSECUTOR" or (role == "JUROR" and vote == "GUILTY")):
                 pts = 20
             elif winner_team == "DEFENSE" and (role == "DEFENSE" or (role == "JUROR" and vote == "NOT_GUILTY")):
                 pts = 20

@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.game import Game, GameType, GameStatus
+from app.core.join_lock import acquire_lock, release_lock
 
 # SQLite(단일 프로세스)에서 대기 중인 게임 없을 때 직렬화용
 _creation_locks: dict[GameType, threading.Lock] = {}
@@ -88,12 +89,17 @@ def get_or_create_game(game_type: str, db: Session) -> Game:
         if dialect_name == "postgresql":
             key = hash(gtype.value) % (2**31)
             db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
-
-        # SQLite는 단일 프로세스 가정, 스레드 락만 사용
+            return _get_or_create_inside(gtype, config, db)
+        # SQLite: 단일 프로세스 가정, 스레드 락만 사용
         if dialect_name == "sqlite":
             with _get_creation_lock(gtype):
                 return _get_or_create_inside(gtype, config, db)
-        return _get_or_create_inside(gtype, config, db)
+        # Oracle 등 기타 서버 DB: 테이블 락으로 생성 직렬화
+        try:
+            acquire_lock(db, f"create_{gtype.value}")
+            return _get_or_create_inside(gtype, config, db)
+        finally:
+            release_lock(db, f"create_{gtype.value}")
 
     return do_create()
 
@@ -198,7 +204,7 @@ def get_engine(game: Game, db: Session):
 
 def _required_agents(game_type: GameType) -> int:
     """게임 타입별 필요 참가 인원."""
-    n = {GameType.battle: 4, GameType.mafia: 6, GameType.ox: 5, GameType.trial: 6}.get(game_type, 4)
+    n = {GameType.battle: 4, GameType.mafia: 6, GameType.ox: 5, GameType.trial: 5}.get(game_type, 4)
     return n
 
 
