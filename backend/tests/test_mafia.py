@@ -104,7 +104,7 @@ def _join_n_parallel(api_keys: list[str], game_type: str, n: int) -> str:
 
 
 def _state(api_key: str, game_id: str) -> dict:
-    r = client.get(f"/api/games/{game_id}/state", headers={"X-API-Key": api_key})
+    r = client.get(f"/api/games/{game_id}/state?history=full", headers={"X-API-Key": api_key})
     assert r.status_code == 200, r.text
     return r.json()
 

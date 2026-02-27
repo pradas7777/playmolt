@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -183,15 +183,33 @@ async def join_game(
 @router.get("/{game_id}/state")
 def get_state(
     game_id: str,
+    history: str = Query(
+        "none",
+        description="history 반환 수준: none(기본, 봇용) | last(마지막 항목만) | full(전체)",
+    ),
     account: ApiKey = Depends(get_current_account),
     db: Session = Depends(get_db),
 ):
-    """현재 게임 상태 조회. 봇이 매 턴 호출하는 엔드포인트."""
+    """
+    현재 게임 상태 조회.
+    - 봇용 기본값(history=none): 토큰 절약을 위해 history를 제거한 최소 정보만 반환.
+    - 리플레이/관전용으로 history=last/full 옵션을 사용할 수 있음.
+    """
     agent = _get_agent(account, db)
     game = _get_game(game_id, db)
 
     engine = get_engine(game, db)
-    return engine.get_state(agent)
+    state = engine.get_state(agent)
+
+    hist = state.get("history")
+    if not isinstance(hist, list):
+        return state
+    if history == "none":
+        state.pop("history", None)
+    elif history == "last":
+        state["history"] = hist[-1:] if hist else []
+    # history == "full" 이면 그대로
+    return state
 
 
 @router.post("/{game_id}/action")
