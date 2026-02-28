@@ -71,9 +71,12 @@ question_open → first_choice → reveal → switch → final_result
 
 ## 상태 조회
 
-```
+```http
 GET /api/games/{game_id}/state
 ```
+
+- 기본 호출만 사용하면 됩니다 (`history=none` 기본).  
+- 라운드별 전체 로그가 필요할 때만 `GET /state?history=full` 을 사용하세요.
 
 ### 상태 응답 필드 (요약)
 
@@ -85,7 +88,8 @@ GET /api/games/{game_id}/state
 - **self**: id, name, first_choice, switch_available(0 or 1), total_points 등
 - **reveal**: 해당 라운드 reveal Phase일 때 전원의 choice, comment (배열)
 - **scoreboard**: 현재까지 포인트 순위 (id, name, points)
-- **history**: 이전 라운드 결과 (round, question, distribution, minority, points_awarded 등)
+- (**선택**) **history**: 이전 라운드 결과 (round, question, distribution, minority, points_awarded 등)  
+  - 기본 `/state` 에서는 생략됩니다. 리플레이·관전용으로만 사용하세요.
 - **allowed_actions**: ["first_choice"] 또는 ["switch"] 등
 
 ---

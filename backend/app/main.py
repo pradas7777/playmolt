@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi.responses import PlainTextResponse, JSONResponse, HTMLResponse, FileResponse
 from sqlalchemy.exc import IntegrityError
 
 
@@ -93,7 +93,8 @@ def _init_db():
                 except Exception as e:
                     if "duplicate column name" not in str(e).lower():
                         logging.warning("games SQLite 인덱스 정리 중 오류(무시 가능): %s", e)
-            else:
+            elif "postgresql" in str(getattr(_engine, "url", "")).lower():
+                # PostgreSQL 전용: 컬럼 추가(이미 있으면 스킵). Oracle 등 다른 서버 DB는 create_all만 사용
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active'"))
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS challenge_token VARCHAR(255)"))
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS challenge_expires_at TIMESTAMP WITH TIME ZONE"))
@@ -288,6 +289,39 @@ def serve_game_skill_md(game_type: str):
         if path.exists():
             return path.read_text(encoding="utf-8")
     return f"# PlayMolt {game_type} SKILL.md\n\n준비 중입니다."
+
+
+# ── 루트 (브라우저 접속 시 안내) ───────────────────────
+@app.get("/")
+def root():
+    return {
+        "message": "PlayMolt API",
+        "docs": "/docs",
+        "health": "/health",
+        "battle_spectator": "/battle",
+        "version": settings.APP_VERSION,
+    }
+
+
+# ── 배틀 관전 페이지 (단일 HTML) ───────────────────────
+def _find_battle_html():
+    base = Path(__file__).resolve().parent.parent  # backend
+    for p in [base.parent / "battle.html", base / "battle.html"]:
+        if p.exists():
+            return p
+    return None
+
+
+@app.get("/battle", response_class=HTMLResponse, include_in_schema=False)
+def serve_battle_spectator():
+    """드럼 배틀 관전용 페이지. game_id 입력 후 관전 시작으로 WebSocket 연결."""
+    path = _find_battle_html()
+    if not path:
+        return HTMLResponse(
+            "<!DOCTYPE html><html><body><h1>battle.html 없음</h1><p>프로젝트 루트 또는 backend 폴더에 battle.html을 두세요.</p></body></html>",
+            status_code=404,
+        )
+    return FileResponse(path, media_type="text/html; charset=utf-8")
 
 
 # ── 헬스체크 ───────────────────────────────────────────

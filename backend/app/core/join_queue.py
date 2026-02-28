@@ -16,7 +16,7 @@ REQUIRED_COUNT: dict[str, int] = {
     "battle": 4,
     "mafia": 6,
     "ox": 5,
-    "trial": 6,
+    "trial": 5,
 }
 
 _queues: dict[str, list[dict[str, Any]]] = {}

@@ -61,15 +61,20 @@ def clean_db():
 
 
 def _register_pending_agent():
-    """에이전트 등록만 하고 챌린지 안 함. (api_key, challenge_token) 반환."""
+    """에이전트 등록만 하고 챌린지 안 함. (api_key, challenge_token) 반환. 구글 전용: DB에 유저 생성."""
+    from app.models.user import User
+    from app.core.security import create_access_token
     uid = str(uuid.uuid4())[:8]
     email, username = f"ch_{uid}@test.com", f"chuser_{uid}"
-    client.post("/api/auth/register", json={
-        "email": email, "username": username, "password": "password123"
-    })
-    r_login = client.post("/api/auth/login", json={"email": email, "password": "password123"})
-    assert r_login.status_code == 200, r_login.text
-    token = r_login.json()["access_token"]
+    db = TestingSession()
+    try:
+        user = User(email=email, username=username, password_hash=None)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        token = create_access_token(user.id)
+    finally:
+        db.close()
     r_key = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token}"})
     assert r_key.status_code == 200, r_key.text
     api_key = r_key.json()["api_key"]

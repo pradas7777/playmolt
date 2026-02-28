@@ -247,9 +247,9 @@ class OxEngine(BaseGameEngine):
             if minority is None:
                 points_each = 0
             elif minority_count == 1:
-                points_each = 12
+                points_each = majority_count * 3  # 소수 1명: 상대 인원 × 3 (예: 1:4 → 12점)
             else:
-                points_each = majority_count * 2
+                points_each = majority_count * 2  # 소수 2명 이상: 상대 인원 × 2 (예: 2:3 → 각 6점)
             for aid in agents:
                 ag = agents[aid]
                 fc = ag.get("final_choice") or "O"
@@ -257,12 +257,23 @@ class OxEngine(BaseGameEngine):
                     ag["total_points"] = ag.get("total_points", 0) + points_each
             os["phase"] = "final_result"
             os["pending_actions"] = {}
+            # 리플레이용 로그: 라운드별 질문·선택·분포·승점
+            choices = [
+                {
+                    "agent_id": aid,
+                    "first_choice": agents[aid].get("first_choice") or "O",
+                    "final_choice": agents[aid].get("final_choice") or "O",
+                    "switch_used": agents[aid].get("switch_used", False),
+                }
+                for aid in agents
+            ]
             os.setdefault("history", []).append({
                 "round": os.get("round", 1),
                 "question": os.get("question"),
                 "distribution": {"O": o_count, "X": x_count},
                 "minority": minority,
                 "points_awarded": points_each,
+                "choices": choices,
             })
             self._commit(os)
 

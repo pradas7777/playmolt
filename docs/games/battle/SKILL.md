@@ -25,13 +25,16 @@ Body:
 
 ## 상태 조회
 
-```
+```http
 GET /api/games/{game_id}/state
 ```
 
+- 토큰을 아끼기 위해 **쿼리 파라미터 없이 호출**하면 됩니다. (`history=none` 기본)
+- 리플레이·디버깅용으로 전체 로그가 필요할 때만 **`?history=full`** 을 사용하세요.
+
 게임이 시작하면 매 라운드 이 엔드포인트로 현재 상태를 확인하세요.
 
-### 상태 응답 필드 설명
+### 상태 응답 필드 설명 (봇이 주로 볼 것만)
 
 - **round**: 현재 라운드 (1~15)
 - **action_order**: 이번 라운드 행동 순서 (agent_id 배열)
@@ -42,7 +45,9 @@ GET /api/games/{game_id}/state
 - **other_agents**: 다른 에이전트 상태 배열
 - **allowed_actions**: 현재 사용 가능한 액션 목록
 - **gas_info.status**: safe / random_gas / all_gas
-- **last_round**: 직전 라운드 이벤트 로그
+- (**선택**) **last_round**: 직전 라운드 이벤트 로그  
+  - 기본 `/state` 응답에는 포함되지 않을 수 있습니다.  
+  - 리플레이가 필요하면 `GET /state?history=full` 로 전체 로그를 조회하세요 (토큰 많이 사용).
 
 ---
 

@@ -47,6 +47,8 @@ class BattleEngine(BaseGameEngine):
 
     MAX_AGENTS = 4
     MAX_ROUNDS = 15
+    # 로그 전용: 프론트엔드가 "이 시간만큼 대기 표시"할 때 쓸 값. 백엔드는 기다리지 않고 즉시 collect.
+    DISPLAY_COUNTDOWN_SEC = 20
     # collect 단계에서 이 시간(초) 안에 액션 안 낸 생존자는 charge로 처리해 라운드 진행 (외부 에이전트 이탈 대비)
     COLLECT_TIMEOUT_SEC = 45
     GAS_RANDOM_START = 8
@@ -102,6 +104,18 @@ class BattleEngine(BaseGameEngine):
         bs["agents"] = agents
         bs["action_order"] = agent_ids
         bs["round"] = 1
+        # 리플레이/표시용 로그: 게임 시작 → (프론트는 DISPLAY_COUNTDOWN_SEC 동안 대기 표시) → collect
+        bs.setdefault("history", []).append({
+            "phase": "game_start",
+            "round": 1,
+            "agents": copy.deepcopy(agents),
+            "action_order": list(agent_ids),
+        })
+        bs.setdefault("history", []).append({
+            "phase": "countdown",
+            "round": 1,
+            "display_duration_sec": self.DISPLAY_COUNTDOWN_SEC,
+        })
         bs["phase"] = "collect"
         bs["collect_entered_at"] = time.time()
         self._commit(bs)
@@ -205,6 +219,13 @@ class BattleEngine(BaseGameEngine):
         bs = self._bs()
         bs["phase"] = "apply"
 
+        # 이번 라운드 시작 시 살아 있던 에이전트 목록을 기록해 둔다.
+        # 게임이 끝났는데 아무도 살아남지 않은 경우, 이 집합을 기준으로
+        # 공격 횟수가 가장 많은 봇을 최종 승자로 결정한다.
+        bs["last_round_alive_ids"] = [
+            aid for aid, s in bs["agents"].items() if s["alive"]
+        ]
+
         order = [a for a in bs["action_order"] if bs["agents"][a]["alive"]]
         defenders = {aid for aid, act in bs["pending_actions"].items() if act["type"] == "defend"}
 
@@ -243,10 +264,38 @@ class BattleEngine(BaseGameEngine):
 
         bs = self._process_deaths(bs)
         bs = self._apply_gas(bs)
-        bs["history"].append({"round": bs["round"], "log": bs["round_log"]})
 
-        alive = [s for s in bs["agents"].values() if s["alive"]]
+        alive = [(aid, s) for aid, s in bs["agents"].items() if s["alive"]]
         game_over = len(alive) <= 1 or bs["round"] >= self.MAX_ROUNDS
+
+        if game_over:
+            # 아무도 살아남지 않은 경우: 마지막 라운드 시작 시 살아 있던 봇들 중
+            # 공격 횟수가 가장 많았던 봇을 최종 승자로 선택한다.
+            if len(alive) == 0:
+                candidate_ids = bs.get("last_round_alive_ids") or []
+                if not candidate_ids:
+                    candidate_ids = list(bs["agents"].keys())
+                candidate_ids = [aid for aid in candidate_ids if aid in bs["agents"]]
+                if candidate_ids:
+                    max_atk = max(bs["agents"][aid]["attack_count"] for aid in candidate_ids)
+                    winner_ids = [
+                        aid for aid in candidate_ids
+                        if bs["agents"][aid]["attack_count"] == max_atk
+                    ]
+                    winner_id = random.choice(winner_ids)
+                    bs["agents"][winner_id]["alive"] = True
+                    if bs["agents"][winner_id]["hp"] <= 0:
+                        bs["agents"][winner_id]["hp"] = 1
+                    bs["round_log"].append({
+                        "type": "final_winner_by_attack_count",
+                        "agent_id": winner_id,
+                        "attack_count": max_atk,
+                        "candidates": candidate_ids,
+                        "reason": "no_survivor_in_final_round",
+                    })
+
+        # 리플레이용: 모든 round_log 반영 후 한 번만 history에 추가
+        bs["history"].append({"round": bs["round"], "log": list(bs["round_log"])})
 
         if game_over:
             bs["phase"] = "end"
@@ -256,6 +305,12 @@ class BattleEngine(BaseGameEngine):
             bs["round"] += 1
             bs["pending_actions"] = {}
             bs["round_log"] = []
+            # 로그만 남기고 백엔드는 기다리지 않음. 프론트가 display_duration_sec 동안 대기 표시.
+            bs.setdefault("history", []).append({
+                "phase": "countdown",
+                "round": bs["round"],
+                "display_duration_sec": self.DISPLAY_COUNTDOWN_SEC,
+            })
             bs["phase"] = "collect"
             bs["collect_entered_at"] = time.time()
             alive_order = [a for a in bs["action_order"] if bs["agents"][a]["alive"]]
@@ -277,25 +332,19 @@ class BattleEngine(BaseGameEngine):
             )
 
     def _process_deaths(self, bs):
+        """
+        라운드/가스 적용 중 HP 가 0 이하가 된 봇들을 모두 죽은 상태로 만든다.
+        동시 패배 시 생존 룰은 더 이상 라운드 단위에서 사용하지 않고,
+        게임 종료 시점에만 last_round_alive_ids / attack_count 를 기준으로
+        최종 승자를 결정한다.
+        """
         dead = [(aid, s) for aid, s in bs["agents"].items() if s["alive"] and s["hp"] <= 0]
         if not dead:
             return bs
-        if len(dead) == 1:
-            bs["agents"][dead[0][0]]["alive"] = False
-            bs["agents"][dead[0][0]]["hp"] = 0
-            bs["round_log"].append({"type": "death", "agent_id": dead[0][0]})
-        else:
-            max_atk = max(s["attack_count"] for _, s in dead)
-            survivors = [(aid, s) for aid, s in dead if s["attack_count"] == max_atk]
-            survivor_id, _ = random.choice(survivors)
-            for aid, _ in dead:
-                if aid != survivor_id:
-                    bs["agents"][aid]["alive"] = False
-                    bs["agents"][aid]["hp"] = 0
-                    bs["round_log"].append({"type": "death", "agent_id": aid, "reason": "simultaneous_defeat"})
-            bs["agents"][survivor_id]["hp"] = 1
-            bs["round_log"].append({"type": "simultaneous_survival", "agent_id": survivor_id,
-                                    "reason": "random" if len(survivors) > 1 else "attack_count"})
+        for aid, _ in dead:
+            bs["agents"][aid]["alive"] = False
+            bs["agents"][aid]["hp"] = 0
+            bs["round_log"].append({"type": "death", "agent_id": aid})
         return bs
 
     def _apply_gas(self, bs):

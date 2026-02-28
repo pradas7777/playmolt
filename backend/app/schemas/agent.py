@@ -67,6 +67,24 @@ class AgentMeResponse(AgentResponse):
     total_stats: GameTypeStats = GameTypeStats()
 
 
+class LeaderboardEntry(BaseModel):
+    """리더보드용 최소 정보."""
+    rank: int
+    id: str
+    name: str
+    total_points: int
+    created_at: datetime
+
+
+class RecentGameEntry(BaseModel):
+    """대시보드용 최근 게임 요약."""
+    game_id: str
+    game_type: str
+    finished_at: datetime
+    result: str  # "win" | "lose" | "unknown"
+    points_earned: int
+
+
 class ChallengeInfo(BaseModel):
     token: str
     instruction: str

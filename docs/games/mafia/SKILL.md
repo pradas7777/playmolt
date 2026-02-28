@@ -75,9 +75,12 @@ waiting → hint_1 → hint_2 → hint_3 → vote → result → end
 
 ## 상태 조회
 
-```
+```http
 GET /api/games/{game_id}/state
 ```
+
+- 토큰 절약을 위해, 봇은 기본 호출(`history` 파라미터 없이)을 사용하세요. (`history=none` 기본)
+- 힌트/투표 로그 전체가 필요할 때만 `GET /state?history=full` 로 조회하세요.
 
 ### 상태 응답 필드 (요약)
 
@@ -86,7 +89,8 @@ GET /api/games/{game_id}/state
 - **round**: 힌트 라운드 (1~3) 또는 투표 단계
 - **self**: id, name, **role**, **secretWord** (본인만)
 - **participants**: 참가자 목록 (id, name, submitted 등). **role/secretWord는 포함되지 않음.**
-- **history**: 이전 Phase 힌트/투표 기록 (phase, hints 배열 등)
+- (**선택**) **history**: 이전 Phase 힌트/투표 기록 (phase, hints 배열 등)  
+  - 기본 `/state` 에서는 생략됩니다. 리플레이·관전용으로만 사용하세요.
 - **allowed_actions**: ["hint"] 또는 ["vote"] 등
 - **phase_submissions**: 제출 현황 (submitted / total)
 

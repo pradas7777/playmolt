@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>PlayMolt 드럼 배틀 관전</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        background: #020617;
+        color: #e5e7eb;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+      }
+      .page {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 24px;
+        gap: 24px;
+      }
+      .panel {
+        width: 100%;
+        max-width: 640px;
+        background: #020617;
+        border: 1px solid #1f2937;
+        border-radius: 16px;
+        padding: 16px 20px 18px;
+        box-shadow: 0 10px 40px rgba(15, 23, 42, 0.9);
+      }
+      .panel h1 {
+        margin: 0 0 8px;
+        font-size: 20px;
+        font-weight: 700;
+        color: #f9fafb;
+      }
+      .panel p {
+        margin: 0 0 6px;
+        font-size: 13px;
+        color: #9ca3af;
+      }
+      .panel-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .panel-row input {
+        flex: 1;
+        padding: 8px 10px;
+        font-size: 13px;
+        border-radius: 8px;
+        border: 1px solid #1f2937;
+        background: #020617;
+        color: #e5e7eb;
+        outline: none;
+      }
+      .panel-row input:focus {
+        border-color: #facc15;
+      }
+      .panel-row button {
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: none;
+        font-size: 13px;
+        font-weight: 600;
+        background: #facc15;
+        color: #111827;
+        cursor: pointer;
+      }
+      .panel-row button:hover {
+        background: #fde047;
+      }
+      .status {
+        margin-top: 8px;
+        font-size: 12px;
+        color: #9ca3af;
+      }
+      .status span {
+        display: inline-block;
+        margin-right: 6px;
+      }
+      .status .error {
+        color: #fca5a5;
+      }
+      .status-hint {
+        margin-top: 6px;
+        font-size: 12px;
+        color: #94a3b8;
+      }
+
+      .game-screen-row {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        gap: 20px;
+        width: 100%;
+        max-width: 1280px;
+      }
+      .game-log-section {
+        flex: 0 0 320px;
+        min-width: 280px;
+        max-width: 380px;
+        border: 1px solid #1f2937;
+        border-radius: 16px;
+        background: rgba(15, 23, 42, 0.6);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .game-log-title {
+        margin: 0;
+        padding: 12px 16px;
+        font-size: 16px;
+        font-weight: 700;
+        color: #f9fafb;
+        background: rgba(31, 41, 55, 0.8);
+        border-bottom: 1px solid #374151;
+      }
+      .game-log-inner {
+        flex: 1;
+        min-height: 200px;
+        max-height: min(70vh, 480px);
+        overflow-y: auto;
+        padding: 12px 16px;
+        font-size: 13px;
+        line-height: 1.6;
+        color: #d1d5db;
+      }
+      .game-log-placeholder {
+        color: #6b7280;
+        font-style: italic;
+      }
+      .game-log-round {
+        margin-bottom: 8px;
+        padding: 6px 0;
+        border-bottom: 1px solid #374151;
+      }
+      .game-log-round:last-child {
+        border-bottom: none;
+      }
+      .game-log-round-head {
+        font-weight: 700;
+        color: #facc15;
+        margin-bottom: 4px;
+      }
+      .game-log-line {
+        padding-left: 12px;
+        margin: 2px 0;
+      }
+      .game-log-line.charge { color: #facc15; }
+      .game-log-line.attack { color: #22d3ee; }
+      .game-log-line.attack-hit { color: #fb7185; }
+      .game-log-line.attack-blocked { color: #22c55e; }
+      .game-log-line.defend { color: #22c55e; }
+      .game-log-line.death { color: #6b7280; }
+      .game-log-line.gas { color: #f97316; }
+      .game-log-line.skip { color: #94a3b8; }
+
+      .arena-wrapper {
+        flex: 1;
+        min-width: 0;
+        max-width: 960px;
+        aspect-ratio: 16 / 9;
+        border-radius: 24px;
+        border: 1px solid #1f2937;
+        background: radial-gradient(
+          circle at 10% 0%,
+          #020617 0,
+          #020617 35%,
+          #020617 100%
+        );
+        position: relative;
+        overflow: visible;
+      }
+      .arena-bg-frame {
+        position: absolute;
+        inset: 28px;
+        border-radius: 24px;
+        border: 1px solid rgba(55, 65, 81, 0.8);
+      }
+      .arena-bg-diag {
+        position: absolute;
+        inset: 56px;
+        border-radius: 40px;
+        border: 1px solid rgba(55, 65, 81, 0.5);
+        transform: rotate(5deg);
+      }
+      .arena-gas {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 50% 0%, rgba(22, 163, 74, 0.0), rgba(22, 163, 74, 0.55)),
+          radial-gradient(circle at 10% 90%, rgba(34, 197, 94, 0.0), rgba(34, 197, 94, 0.4));
+        mix-blend-mode: screen;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .arena-gas.visible {
+        animation: gas-fog 1.6s ease-out forwards;
+      }
+      @keyframes gas-fog {
+        0% { opacity: 0; }
+        30% { opacity: 0.7; }
+        100% { opacity: 0; }
+      }
+      .arena-info {
+        position: absolute;
+        top: 10px;
+        left: 14px;
+        font-size: 12px;
+        color: #9ca3af;
+      }
+      .arena-info div {
+        margin-bottom: 2px;
+      }
+      .arena-info .arena-info-phase {
+        color: #e5e7eb;
+        font-weight: 600;
+      }
+
+      .arena-countdown {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        padding: 24px 48px;
+        border-radius: 24px;
+        background: rgba(15, 23, 42, 0.98);
+        border: 3px solid #facc15;
+        color: #facc15;
+        font-size: 20px;
+        font-weight: 700;
+        box-shadow: 0 0 48px rgba(250, 204, 21, 0.5);
+        display: none;
+        pointer-events: none;
+        z-index: 100;
+        text-align: center;
+      }
+      .arena-countdown.visible {
+        display: block;
+      }
+      .arena-countdown .countdown-label {
+        display: block;
+        font-size: 18px;
+        margin-bottom: 4px;
+      }
+      .arena-countdown .countdown-num {
+        display: block;
+        font-size: 80px;
+        line-height: 1.1;
+        margin: 8px 0 4px;
+        text-shadow: 0 0 24px rgba(250, 204, 21, 0.8);
+      }
+      .arena-countdown .countdown-unit {
+        display: block;
+        font-size: 24px;
+        opacity: 0.95;
+      }
+
+      .arena-laser {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        overflow: visible;
+        opacity: 0;
+        transition: opacity 0.2s;
+        z-index: 50;
+      }
+      .arena-laser.visible {
+        opacity: 1;
+      }
+      .arena-laser line {
+        stroke: #22d3ee;
+        stroke-width: 10;
+        stroke-linecap: round;
+        filter: drop-shadow(0 0 14px rgba(34, 211, 238, 1)) drop-shadow(0 0 6px rgba(34, 211, 238, 0.9));
+        transition: stroke-dashoffset 1s ease-out;
+      }
+      .arena-laser.blocked line {
+        stroke: #22c55e;
+        stroke-width: 10;
+        filter: drop-shadow(0 0 14px rgba(34, 197, 94, 1)) drop-shadow(0 0 6px rgba(34, 197, 94, 0.9));
+      }
+
+      .robot-slot {
+        position: absolute;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        transform: translate(-50%, -50%);
+        transition: opacity 0.2s;
+        overflow: visible;
+      }
+      .slot-top {
+        top: 18%;
+        left: 50%;
+      }
+      .slot-right {
+        top: 50%;
+        left: 82%;
+      }
+      .slot-bottom {
+        top: 82%;
+        left: 50%;
+      }
+      .slot-left {
+        top: 50%;
+        left: 18%;
+      }
+
+      .robot-card {
+        position: relative;
+        background: rgba(15, 23, 42, 0.96);
+        border-radius: 18px;
+        border: 1px solid #374151;
+        padding: 8px 10px 10px;
+        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.9);
+        transition: box-shadow 0.2s, border-color 0.2s, transform 0.2s;
+        min-width: 90px;
+        overflow: visible;
+      }
+      .robot-card.dead {
+        opacity: 0.9;
+        border-color: #4b5563;
+        box-shadow: none;
+        transform: rotate(90deg);
+        transform-origin: center bottom;
+        filter: grayscale(0.4);
+        transition: box-shadow 0.2s, border-color 0.2s, transform 0.8s ease-out;
+      }
+      .robot-card.attacker {
+        border-color: #22d3ee;
+        box-shadow: 0 0 18px rgba(34, 211, 238, 0.8);
+      }
+      .robot-card.target {
+        border-color: #f97373;
+        box-shadow: 0 0 20px rgba(248, 113, 113, 0.9);
+      }
+      .robot-card.defending {
+        border-color: #22c55e;
+        box-shadow: 0 0 18px rgba(34, 197, 94, 0.8);
+      }
+
+      .robot-head {
+        width: 32px;
+        height: 32px;
+        border-radius: 999px;
+        background: linear-gradient(145deg, #f3f4f6, #e5e7eb);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 4px;
+      }
+      .robot-eyes {
+        display: flex;
+        gap: 4px;
+      }
+      .robot-eyes span {
+        width: 4px;
+        height: 4px;
+        border-radius: 999px;
+        background: #111827;
+      }
+
+      .robot-body {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background: linear-gradient(145deg, #e5e7eb, #d1d5db);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto;
+      }
+      .robot-body-bar {
+        width: 18px;
+        height: 4px;
+        border-radius: 999px;
+        background: #111827;
+      }
+
+      .robot-hand-row {
+        margin-top: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+      }
+      .robot-hand {
+        width: 28px;
+        height: 16px;
+        position: relative;
+      }
+      .robot-gun {
+        display: none;
+        width: 28px;
+        height: 12px;
+        background: linear-gradient(180deg, #64748b 0%, #475569 100%);
+        border-radius: 4px;
+        box-shadow: 0 0 0 1px #334155, 0 0 14px rgba(34, 211, 238, 0.7);
+        position: absolute;
+        left: 50%;
+        bottom: 42px;
+        margin-left: -14px;
+        transform-origin: center center;
+        z-index: 30;
+        pointer-events: none;
+      }
+      .robot-gun::after {
+        content: "";
+        position: absolute;
+        right: -10px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 12px;
+        height: 5px;
+        background: #22d3ee;
+        border-radius: 2px;
+        box-shadow: 0 0 12px rgba(34, 211, 238, 0.95);
+      }
+      .robot-slot.attacker-slot .robot-gun {
+        display: block;
+      }
+      .robot-shield {
+        display: none;
+        position: absolute;
+        inset: -4px;
+        border-radius: 22px;
+        background: rgba(34, 197, 94, 0.25);
+        border: 3px solid #22c55e;
+        box-shadow: 0 0 20px rgba(34, 197, 94, 0.6), inset 0 0 20px rgba(34, 197, 94, 0.2);
+        pointer-events: none;
+      }
+      .robot-shield::before {
+        content: "🛡";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 28px;
+        filter: drop-shadow(0 0 4px rgba(0,0,0,0.5));
+      }
+      .robot-card.blocking .robot-shield {
+        display: block;
+      }
+      .robot-name {
+        font-size: 10px;
+        color: #9ca3af;
+      }
+
+      .hp-bar {
+        margin-top: 6px;
+        display: flex;
+        justify-content: center;
+        gap: 2px;
+      }
+      .hp-cell {
+        width: 12px;
+        height: 6px;
+        border-radius: 2px;
+        background: #374151;
+      }
+      .hp-cell.on {
+        background: #fb7185;
+      }
+
+      .battery {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 5px;
+        border-radius: 999px;
+        border: 1px solid #facc15;
+        background: rgba(15, 23, 42, 0.96);
+        box-shadow: 0 0 12px rgba(250, 204, 21, 0.6);
+        gap: 3px;
+        transition: transform 0.15s;
+      }
+      .battery-cell {
+        width: 11px;
+        height: 10px;
+        border-radius: 2px;
+        border: 1px solid #facc15;
+        background: transparent;
+      }
+      .battery-cell.on {
+        background: #facc15;
+      }
+      .battery.charging {
+        animation: pulse 0.5s ease-in-out infinite alternate;
+      }
+      .battery.charge-flash {
+        animation: charge-flash 1.2s ease-out;
+      }
+      @keyframes charge-flash {
+        0% { transform: scale(1); box-shadow: 0 0 12px rgba(250, 204, 21, 0.6); }
+        35% { transform: scale(1.25); box-shadow: 0 0 28px rgba(250, 204, 21, 0.95); }
+        100% { transform: scale(1); box-shadow: 0 0 12px rgba(250, 204, 21, 0.6); }
+      }
+      .robot-card.charge-glow {
+        animation: charge-glow 1.2s ease-out;
+      }
+      @keyframes charge-glow {
+        0% {
+          transform: scale(1);
+          box-shadow: 0 6px 18px rgba(15, 23, 42, 0.9), 0 0 0 rgba(250, 204, 21, 0);
+        }
+        40% {
+          transform: scale(1.12);
+          box-shadow: 0 8px 24px rgba(15, 23, 42, 0.95), 0 0 24px rgba(250, 204, 21, 0.7), 0 0 40px rgba(250, 204, 21, 0.4);
+        }
+        100% {
+          transform: scale(1);
+          box-shadow: 0 6px 18px rgba(15, 23, 42, 0.9), 0 0 0 rgba(250, 204, 21, 0);
+        }
+      }
+      .robot-card.defend-flash {
+        animation: defend-flash 1.2s ease-out;
+      }
+      @keyframes defend-flash {
+        0%, 100% { box-shadow: 0 0 18px rgba(34, 197, 94, 0.8); }
+        50% { box-shadow: 0 0 36px rgba(34, 197, 94, 1); }
+      }
+      .robot-card.hit-flash {
+        animation: hit-flash 1.2s ease-out;
+      }
+      @keyframes hit-flash {
+        0%, 100% { box-shadow: 0 0 20px rgba(248, 113, 113, 0.9); }
+        50% { box-shadow: 0 0 40px rgba(248, 113, 113, 1); filter: brightness(1.4); }
+      }
+
+      @keyframes pulse {
+        from {
+          transform: translateY(0);
+        }
+        to {
+          transform: translateY(-2px);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <section class="panel">
+        <h1>드럼 배틀 관전용 페이지 (단일 HTML)</h1>
+        <p>
+          이미 돌아가고 있는 <code>battle</code> 게임의
+          <code>game_id</code> 를 넣고 <b>관전 시작</b>을 누르면,
+          백엔드 WebSocket(<code>/ws/games/{game_id}</code>) 에 연결해서
+          라운드 로그를 애니메이션으로 보여줍니다.
+        </p>
+
+        <div class="panel-row">
+          <input
+            id="gameIdInput"
+            placeholder="예) 3e6d2a9b-...  (백엔드에서 받은 game_id)"
+          />
+          <button id="connectBtn">관전 시작</button>
+        </div>
+
+        <div class="status" id="statusText">
+          <span>연결 상태: ⏳ 대기 중</span>
+        </div>
+        <p class="status-hint" id="statusHint">
+          <b>관전 방법:</b> 봇 터미널에 나온 <code>FULL_GAME_ID=...</code> 값을 복사해 위 입력란에 붙여넣고 <b>관전 시작</b>을 누르세요. (봇 4마리가 들어간 뒤 게임이 시작됩니다.)
+        </p>
+      </section>
+
+      <div class="game-screen-row">
+      <section class="arena-wrapper">
+        <div class="arena-bg-frame"></div>
+        <div class="arena-bg-diag"></div>
+        <div class="arena-gas" id="arenaGas"></div>
+
+        <div class="arena-info" id="arenaInfo">
+          <div>라운드: 0</div>
+          <div>페이즈: waiting</div>
+        </div>
+
+        <div class="arena-countdown" id="countdownBanner" aria-live="polite">
+          <span class="countdown-label">에이전트들의 답을 기다리는 중</span>
+          <span class="countdown-num" id="countdownSec">20</span>
+          <span class="countdown-unit">초</span>
+        </div>
+
+        <svg id="arenaLaser" class="arena-laser" aria-hidden="true">
+          <line id="laserLine" x1="0" y1="0" x2="0" y2="0" />
+        </svg>
+
+        <!-- 4개의 슬롯 -->
+        <div class="robot-slot slot-top" data-slot="top">
+          <span class="robot-gun" aria-hidden="true"></span>
+          <div class="robot-card" data-role="card">
+            <div class="robot-head">
+              <div class="robot-eyes"><span></span><span></span></div>
+            </div>
+            <div class="robot-body">
+              <div class="robot-body-bar"></div>
+            </div>
+            <div class="robot-hand-row">
+              <div class="robot-hand"></div>
+              <div class="robot-name" data-role="name">—</div>
+            </div>
+            <div class="robot-shield" aria-hidden="true"></div>
+            <div class="hp-bar">
+              <div class="hp-cell" data-hp="1"></div>
+              <div class="hp-cell" data-hp="2"></div>
+              <div class="hp-cell" data-hp="3"></div>
+              <div class="hp-cell" data-hp="4"></div>
+            </div>
+          </div>
+          <div class="battery" data-role="battery">
+            <div class="battery-cell" data-energy="1"></div>
+            <div class="battery-cell" data-energy="2"></div>
+            <div class="battery-cell" data-energy="3"></div>
+          </div>
+        </div>
+
+        <div class="robot-slot slot-right" data-slot="right">
+          <span class="robot-gun" aria-hidden="true"></span>
+          <div class="robot-card" data-role="card">
+            <div class="robot-head">
+              <div class="robot-eyes"><span></span><span></span></div>
+            </div>
+            <div class="robot-body">
+              <div class="robot-body-bar"></div>
+            </div>
+            <div class="robot-hand-row">
+              <div class="robot-hand"></div>
+              <div class="robot-name" data-role="name">—</div>
+            </div>
+            <div class="robot-shield" aria-hidden="true"></div>
+            <div class="hp-bar">
+              <div class="hp-cell" data-hp="1"></div>
+              <div class="hp-cell" data-hp="2"></div>
+              <div class="hp-cell" data-hp="3"></div>
+              <div class="hp-cell" data-hp="4"></div>
+            </div>
+          </div>
+          <div class="battery" data-role="battery">
+            <div class="battery-cell" data-energy="1"></div>
+            <div class="battery-cell" data-energy="2"></div>
+            <div class="battery-cell" data-energy="3"></div>
+          </div>
+        </div>
+
+        <div class="robot-slot slot-bottom" data-slot="bottom">
+          <span class="robot-gun" aria-hidden="true"></span>
+          <div class="robot-card" data-role="card">
+            <div class="robot-head">
+              <div class="robot-eyes"><span></span><span></span></div>
+            </div>
+            <div class="robot-body">
+              <div class="robot-body-bar"></div>
+            </div>
+            <div class="robot-hand-row">
+              <div class="robot-hand"></div>
+              <div class="robot-name" data-role="name">—</div>
+            </div>
+            <div class="robot-shield" aria-hidden="true"></div>
+            <div class="hp-bar">
+              <div class="hp-cell" data-hp="1"></div>
+              <div class="hp-cell" data-hp="2"></div>
+              <div class="hp-cell" data-hp="3"></div>
+              <div class="hp-cell" data-hp="4"></div>
+            </div>
+          </div>
+          <div class="battery" data-role="battery">
+            <div class="battery-cell" data-energy="1"></div>
+            <div class="battery-cell" data-energy="2"></div>
+            <div class="battery-cell" data-energy="3"></div>
+          </div>
+        </div>
+
+        <div class="robot-slot slot-left" data-slot="left">
+          <span class="robot-gun" aria-hidden="true"></span>
+          <div class="robot-card" data-role="card">
+            <div class="robot-head">
+              <div class="robot-eyes"><span></span><span></span></div>
+            </div>
+            <div class="robot-body">
+              <div class="robot-body-bar"></div>
+            </div>
+            <div class="robot-hand-row">
+              <div class="robot-hand"></div>
+              <div class="robot-name" data-role="name">—</div>
+            </div>
+            <div class="robot-shield" aria-hidden="true"></div>
+            <div class="hp-bar">
+              <div class="hp-cell" data-hp="1"></div>
+              <div class="hp-cell" data-hp="2"></div>
+              <div class="hp-cell" data-hp="3"></div>
+              <div class="hp-cell" data-hp="4"></div>
+            </div>
+          </div>
+          <div class="battery" data-role="battery">
+            <div class="battery-cell" data-energy="1"></div>
+            <div class="battery-cell" data-energy="2"></div>
+            <div class="battery-cell" data-energy="3"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="game-log-section">
+        <h2 class="game-log-title">게임 로그</h2>
+        <div class="game-log-inner" id="gameLog">
+          <div class="game-log-placeholder">연결 후 라운드별 행동과 결과가 표시됩니다.</div>
+        </div>
+      </section>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        const WS_BASE = (location.host ? "ws://" + location.host : "ws://127.0.0.1:8000") + "/ws/games/";
+        let gameIdInput, connectBtn, statusText, statusHint, arenaInfo;
+        let countdownBanner, countdownSec, arenaWrapper, arenaLaser, laserLine, arenaGas;
+        let slotNames, slotMap;
+        let ws = null;
+        let battleState = null;
+        let effectTimer = null;
+        let countdownInterval = null;
+        let isAnimatingRound = false;
+
+        function init() {
+          gameIdInput = document.getElementById("gameIdInput");
+          connectBtn = document.getElementById("connectBtn");
+          statusText = document.getElementById("statusText");
+          statusHint = document.getElementById("statusHint");
+          arenaInfo = document.getElementById("arenaInfo");
+          countdownBanner = document.getElementById("countdownBanner");
+          countdownSec = document.getElementById("countdownSec");
+          arenaWrapper = document.querySelector(".arena-wrapper");
+          arenaLaser = document.getElementById("arenaLaser");
+          laserLine = document.getElementById("laserLine");
+          arenaGas = document.getElementById("arenaGas");
+
+          slotNames = ["top", "right", "bottom", "left"];
+          slotMap = {};
+          document
+            .querySelectorAll(".robot-slot")
+            .forEach((el) => (slotMap[el.dataset.slot] = el));
+
+          if (!connectBtn || !statusText) return;
+          bindConnect();
+        }
+
+        function setConnectButton(connecting) {
+          if (!connectBtn) return;
+          connectBtn.disabled = !!connecting;
+          connectBtn.textContent = connecting ? "연결 중…" : "관전 시작";
+        }
+
+        function setStatus(text, isError) {
+          if (!statusText) return;
+          statusText.innerHTML =
+            "연결 상태: <span>" +
+            text +
+            "</span>" +
+            (isError ? ' <span class="error">(에러)</span>' : "");
+        }
+
+        function clearEffects() {
+          Object.values(slotMap).forEach((slot) => {
+            slot.classList.remove("attacker-slot");
+            const card = slot.querySelector('[data-role="card"]');
+            const battery = slot.querySelector('[data-role="battery"]');
+            if (!card || !battery) return;
+            card.classList.remove("attacker", "target", "defending", "defend-flash", "hit-flash", "charge-glow", "blocking");
+            battery.classList.remove("charging", "charge-flash");
+          });
+          hideLaser();
+        }
+
+        function getSlotCenter(slot) {
+          if (!slot || !arenaWrapper) return { x: 0, y: 0 };
+          const r = slot.getBoundingClientRect();
+          const a = arenaWrapper.getBoundingClientRect();
+          return {
+            x: r.left - a.left + r.width / 2,
+            y: r.top - a.top + r.height / 2,
+          };
+        }
+
+        function showLaser(fromSlot, toSlot, isBlocked) {
+          if (!laserLine || !arenaLaser || !arenaWrapper) return;
+          if (!fromSlot || !toSlot) return;
+          const p1 = getSlotCenter(fromSlot);
+          const p2 = getSlotCenter(toSlot);
+          const w = arenaWrapper.clientWidth;
+          const h = arenaWrapper.clientHeight;
+          arenaLaser.setAttribute("viewBox", "0 0 " + w + " " + h);
+          laserLine.setAttribute("x1", p1.x);
+          laserLine.setAttribute("y1", p1.y);
+          laserLine.setAttribute("x2", p2.x);
+          laserLine.setAttribute("y2", p2.y);
+          const len = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
+          laserLine.setAttribute("stroke-dasharray", len);
+          laserLine.setAttribute("stroke-dashoffset", len);
+          arenaLaser.classList.toggle("blocked", !!isBlocked);
+          arenaLaser.classList.add("visible");
+          arenaLaser.style.opacity = "1";
+          requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+              laserLine.setAttribute("stroke-dashoffset", "0");
+            });
+          });
+        }
+
+        function hideLaser() {
+          if (!arenaLaser || !laserLine) return;
+          arenaLaser.classList.remove("visible");
+          arenaLaser.style.opacity = "0";
+          const len = laserLine.getAttribute("stroke-dasharray") || "1";
+          laserLine.setAttribute("stroke-dashoffset", len);
+        }
+
+        function getCountdownRemaining() {
+          if (!battleState || battleState.phase !== "countdown") return null;
+          var endsAt = battleState.countdown_ends_at;
+          if (endsAt == null) return null;
+          var nowSec = Date.now() / 1000;
+          var endsAtSec = endsAt > 1e12 ? endsAt / 1000 : endsAt;
+          return Math.max(0, Math.ceil(endsAtSec - nowSec));
+        }
+
+        function updateCountdownBanner() {
+          const phase = battleState ? battleState.phase : "";
+          if (phase !== "countdown" || isAnimatingRound) {
+            countdownBanner.classList.remove("visible");
+            if (countdownInterval) {
+              clearInterval(countdownInterval);
+              countdownInterval = null;
+            }
+            return;
+          }
+          countdownBanner.classList.add("visible");
+          const remaining = getCountdownRemaining();
+          if (countdownSec) {
+            countdownSec.textContent = remaining != null ? remaining : "?";
+          }
+        }
+
+        function showGasFog() {
+          if (!arenaGas) return;
+          arenaGas.classList.add("visible");
+          setTimeout(function () {
+            if (arenaGas) {
+              arenaGas.classList.remove("visible");
+            }
+          }, 1600);
+        }
+        function shortName(id) {
+          return id ? id.slice(0, 6) : "???";
+        }
+        function formatLogEntry(entry) {
+          const a = shortName(entry.agent_id);
+          const t = shortName(entry.target_id);
+          if (entry.type === "charge") {
+            return { text: "[" + a + "] 기 모음 → 에너지 " + (entry.energy_after ?? "?"), cls: "charge" };
+          }
+          if (entry.type === "defend") {
+            return { text: "[" + a + "] 방어", cls: "defend" };
+          }
+          if (entry.type === "attack_hit") {
+            return { text: "[" + a + "] 공격 [" + t + "] → " + (entry.damage ?? "?") + " 데미지 (HP " + (entry.target_hp_after ?? "?") + ")", cls: "attack-hit" };
+          }
+          if (entry.type === "attack_blocked") {
+            return { text: "[" + a + "] 공격 [" + t + "] → 방어에 막힘", cls: "attack-blocked" };
+          }
+          if (entry.type === "death") {
+            return { text: "[" + shortName(entry.agent_id) + "] 사망", cls: "death" };
+          }
+          if (entry.type === "gas_all") {
+            return { text: "가스(전체) [" + a + "] HP " + (entry.hp_after ?? "?"), cls: "gas" };
+          }
+          if (entry.type === "gas_random") {
+            return { text: "가스(랜덤) [" + a + "] HP " + (entry.hp_after ?? "?"), cls: "gas" };
+          }
+          if (entry.type === "skip") {
+            return { text: "[" + a + "] 스킵 (" + (entry.reason || "?") + ")", cls: "skip" };
+          }
+          if (entry.type === "attack_invalid") {
+            return { text: "[" + a + "] 공격 [유효하지 않음] → " + t, cls: "attack-blocked" };
+          }
+          if (entry.type === "simultaneous_survival") {
+            return { text: "[" + shortName(entry.agent_id) + "] 동시 패배 시 생존", cls: "death" };
+          }
+          return null;
+        }
+        function appendGameLog(round, log) {
+          const el = document.getElementById("gameLog");
+          if (!el) return;
+          const placeholder = el.querySelector(".game-log-placeholder");
+          if (placeholder) placeholder.remove();
+          const roundDiv = document.createElement("div");
+          roundDiv.className = "game-log-round";
+          roundDiv.innerHTML = "<div class=\"game-log-round-head\">라운드 " + round + "</div>";
+          (log || []).forEach(function (entry) {
+            const f = formatLogEntry(entry);
+            if (f) {
+              const line = document.createElement("div");
+              line.className = "game-log-line " + f.cls;
+              line.textContent = f.text;
+              roundDiv.appendChild(line);
+            }
+          });
+          el.appendChild(roundDiv);
+          el.scrollTop = el.scrollHeight;
+        }
+
+        function updateArenaInfo() {
+          const round = battleState ? battleState.round || 0 : 0;
+          const phase = battleState ? battleState.phase || "waiting" : "waiting";
+          let phaseText = phase === "countdown" ? "에이전트 답 대기 중" : phase;
+          if (isAnimatingRound && phase === "countdown") phaseText = "라운드 연출 중";
+          const countdownNum = (phase === "countdown" && !isAnimatingRound) ? getCountdownRemaining() : null;
+          if (countdownNum != null) phaseText += " — " + countdownNum + "초";
+
+          arenaInfo.innerHTML =
+            "<div>라운드: " + round + "</div>" +
+            "<div class=\"arena-info-phase\">페이즈: " + phaseText + "</div>";
+
+          updateCountdownBanner();
+          if (phase === "countdown" && !countdownInterval) {
+            countdownInterval = setInterval(updateCountdownBanner, 500);
+          }
+          if (phase !== "countdown" && countdownInterval) {
+            clearInterval(countdownInterval);
+            countdownInterval = null;
+          }
+        }
+
+        function mergeAgents(prev, next) {
+          var out = {};
+          if (prev) Object.keys(prev).forEach(function (id) { out[id] = { ...(prev[id] || {}) }; });
+          if (next) Object.keys(next).forEach(function (id) { out[id] = { ...(out[id] || {}), ...(next[id] || {}) }; });
+          return out;
+        }
+
+        function updateRobots(displayAgents, lastDeathInRound) {
+          if (!battleState) return;
+          const agents = displayAgents || battleState.agents || {};
+          const order =
+            battleState.action_order && battleState.action_order.length
+              ? battleState.action_order
+              : Object.keys(agents);
+          var candidateIds = (order && order.length ? order : Object.keys(agents))
+            .filter(function (aid) { return agents[aid] != null; })
+            .slice(0, 4);
+          if (candidateIds.length >= 4 && (!battleState.fixed_slot_agent_ids || battleState.fixed_slot_agent_ids.length < 4)) {
+            battleState.fixed_slot_agent_ids = candidateIds.slice(0, 4);
+          }
+          var usedIds = (battleState.fixed_slot_agent_ids && battleState.fixed_slot_agent_ids.length >= 4)
+            ? battleState.fixed_slot_agent_ids
+            : candidateIds;
+
+          slotNames.forEach((slotName, idx) => {
+            const slot = slotMap[slotName];
+            const card = slot.querySelector('[data-role="card"]');
+            const nameEl = slot.querySelector('[data-role="name"]');
+            const battery = slot.querySelector('[data-role="battery"]');
+            const hpCells = slot.querySelectorAll(".hp-cell");
+
+            const agentId = usedIds[idx];
+            if (!agentId) {
+              card.style.opacity = "0";
+              if (battery) battery.style.opacity = "0";
+              slot.dataset.agentId = "";
+              return;
+            }
+
+            const ag = agents[agentId] || {};
+            slot.dataset.agentId = agentId;
+            card.style.opacity = "1";
+            nameEl.textContent = agentId.slice(0, 4);
+
+            const hp = typeof ag.hp === "number" ? ag.hp : 0;
+            hpCells.forEach((cell) => {
+              const idxHp = parseInt(cell.getAttribute("data-hp"), 10);
+              cell.classList.toggle("on", idxHp <= hp);
+            });
+
+            const alive = ag.alive !== false;
+            card.classList.toggle("dead", !alive);
+
+            if (battery) {
+              if (alive) {
+                battery.style.opacity = "1";
+                battery.style.display = "";
+                const energy = typeof ag.energy === "number" ? ag.energy : 0;
+                battery.querySelectorAll(".battery-cell").forEach((cell) => {
+                  const enIdx = parseInt(cell.getAttribute("data-energy"), 10);
+                  cell.classList.toggle("on", enIdx <= energy);
+                });
+              } else {
+                battery.style.opacity = "0";
+                battery.style.display = "none";
+              }
+            }
+          });
+
+          updateArenaInfo();
+        }
+
+        function deepCopyAgents(agents) {
+          const out = {};
+          if (!agents) return out;
+          Object.keys(agents).forEach(function (id) {
+            out[id] = { ...(agents[id] || {}) };
+          });
+          return out;
+        }
+
+        function agentsAtRoundStart(agentsAfter, log) {
+          if (!agentsAfter || !log.length) return agentsAfter ? deepCopyAgents(agentsAfter) : {};
+          var agents = deepCopyAgents(agentsAfter);
+          for (var idx = log.length - 1; idx >= 0; idx--) {
+            var e = log[idx];
+            if (e.type === "charge" && e.agent_id && agents[e.agent_id]) {
+              var after = e.energy_after != null ? e.energy_after : (agents[e.agent_id].energy || 0);
+              agents[e.agent_id].energy = Math.max(0, after - 1);
+            } else if (e.type === "attack_hit" && e.target_id && agents[e.target_id]) {
+              var dmg = e.damage != null ? e.damage : 0;
+              agents[e.target_id].hp = (e.target_hp_after != null ? e.target_hp_after : 0) + dmg;
+            } else if ((e.type === "gas_all" || e.type === "gas_random") && e.agent_id && agents[e.agent_id]) {
+              agents[e.agent_id].hp = (e.hp_after != null ? e.hp_after : 0) + 1;
+            } else if (e.type === "death" && e.agent_id && agents[e.agent_id]) {
+              agents[e.agent_id].alive = true;
+              agents[e.agent_id].hp = 1;
+            }
+          }
+          return agents;
+        }
+
+        function playRoundLog(round, log, agentsAfter) {
+          if (effectTimer) {
+            clearInterval(effectTimer);
+            effectTimer = null;
+          }
+          clearEffects();
+          isAnimatingRound = true;
+          updateArenaInfo();
+
+          if (!log || !log.length) {
+            if (agentsAfter) {
+              if (!battleState) battleState = {};
+              battleState.agents = mergeAgents(battleState.agents, agentsAfter);
+              battleState.round = round;
+              battleState.lastDeathInRound = null;
+              updateRobots();
+            }
+            isAnimatingRound = false;
+            updateArenaInfo();
+            return;
+          }
+
+          var gasEntries = log.filter(function (e) {
+            return e.type === "gas_all" || e.type === "gas_random";
+          });
+          var restEntries = log.filter(function (e) {
+            return e.type !== "gas_all" && e.type !== "gas_random";
+          });
+
+          var displayAgents = agentsAtRoundStart(agentsAfter, log);
+          if (Object.keys(displayAgents).length === 0 && battleState.agents) {
+            displayAgents = deepCopyAgents(battleState.agents);
+          }
+
+          // 라운드별 행동 순서: 1라운드 [1,2,3,4] → 다음 라운드마다 좌측 회전
+          if (!battleState) battleState = {};
+          var baseOrder =
+            (battleState.base_action_order && battleState.base_action_order.length
+              ? battleState.base_action_order
+              : (battleState.action_order && battleState.action_order.length
+                ? battleState.action_order
+                : Object.keys(displayAgents)));
+          baseOrder = (baseOrder || []).filter(function (aid) { return displayAgents[aid] != null; }).slice(0, 4);
+          battleState.base_action_order = baseOrder;
+          var rotateBy = baseOrder.length ? ((Math.max(1, round) - 1) % baseOrder.length) : 0;
+          var roundOrder = baseOrder.slice(rotateBy).concat(baseOrder.slice(0, rotateBy));
+          battleState.action_order = roundOrder;
+
+          // 가스 이후: 행동 순서대로 재생하되, 사망(death)은 항상 맨 뒤(공격 → 체력 감소 → 그 다음 사망)
+          var idxMap = {};
+          roundOrder.forEach(function (aid, idx) { idxMap[aid] = idx; });
+          var restWithIdx = restEntries.map(function (e, idx) { return { e: e, idx: idx }; });
+          restWithIdx.sort(function (a, b) {
+            var aIsDeath = a.e && a.e.type === "death";
+            var bIsDeath = b.e && b.e.type === "death";
+            if (aIsDeath && !bIsDeath) return 1;
+            if (!aIsDeath && bIsDeath) return -1;
+            if (aIsDeath && bIsDeath) return a.idx - b.idx;
+            var ai = a.e && a.e.agent_id != null && idxMap[a.e.agent_id] != null ? idxMap[a.e.agent_id] : 999;
+            var bi = b.e && b.e.agent_id != null && idxMap[b.e.agent_id] != null ? idxMap[b.e.agent_id] : 999;
+            if (ai !== bi) return ai - bi;
+            return a.idx - b.idx;
+          });
+          var sortedLog = gasEntries.concat(restWithIdx.map(function (x) { return x.e; }));
+
+          var lastDeathInRound = null;
+          for (var ei = log.length - 1; ei >= 0; ei--) {
+            if (log[ei].type === "death" && log[ei].agent_id) {
+              lastDeathInRound = log[ei].agent_id;
+              break;
+            }
+          }
+          var defendersThisRound = {};
+          log.forEach(function (e) {
+            if (e.type === "defend" && e.agent_id) defendersThisRound[e.agent_id] = true;
+          });
+
+          updateRobots(displayAgents, lastDeathInRound);
+
+          const STEP_MS = 2000;
+          const LAST_STEP_DELAY_MS = 4000;
+          var i = 0;
+          var deadThisRound = {};
+          var step = function () {
+            var entry = sortedLog[i];
+            if (!entry) {
+              clearEffects();
+              if (agentsAfter) {
+                if (!battleState) battleState = {};
+                battleState.agents = mergeAgents(battleState.agents, agentsAfter);
+                battleState.round = round;
+                battleState.lastDeathInRound = null;
+                updateRobots();
+              }
+              isAnimatingRound = false;
+              updateArenaInfo();
+              clearInterval(effectTimer);
+              effectTimer = null;
+              return;
+            }
+            clearEffects();
+
+            var actorId = entry.agent_id;
+            var isActorEntry = (entry.type === "charge" || entry.type === "defend" || entry.type === "attack_hit" || entry.type === "attack_blocked" || entry.type === "death");
+            if (isActorEntry && actorId && deadThisRound[actorId]) {
+              i += 1;
+              if (i >= sortedLog.length) {
+                clearInterval(effectTimer);
+                effectTimer = null;
+                setTimeout(function () {
+                  clearEffects();
+                  if (agentsAfter) {
+                    if (!battleState) battleState = {};
+                    battleState.agents = mergeAgents(battleState.agents, agentsAfter);
+                    battleState.round = round;
+                    battleState.lastDeathInRound = null;
+                    updateRobots();
+                  }
+                  isAnimatingRound = false;
+                  updateArenaInfo();
+                }, LAST_STEP_DELAY_MS);
+              }
+              return;
+            }
+
+            if (entry.type === "gas_all" || entry.type === "gas_random") {
+              showGasFog();
+              if (entry.agent_id && displayAgents[entry.agent_id]) {
+                displayAgents[entry.agent_id].hp = entry.hp_after;
+                if (entry.hp_after != null && entry.hp_after <= 0) deadThisRound[entry.agent_id] = true;
+              }
+              updateRobots(displayAgents, lastDeathInRound);
+            } else if (entry.type === "charge" && entry.agent_id) {
+              var slot = findSlotByAgent(entry.agent_id);
+              if (slot) {
+                var card = slot.querySelector('[data-role="card"]');
+                var battery = slot.querySelector('[data-role="battery"]');
+                if (card) {
+                  card.classList.add("charge-glow");
+                  setTimeout(function () {
+                    card.classList.remove("charge-glow");
+                  }, 1200);
+                }
+                if (battery) {
+                  battery.classList.add("charging", "charge-flash");
+                  setTimeout(function () {
+                    battery.classList.remove("charge-flash");
+                  }, 1200);
+                }
+              }
+              var chargeAgentId = entry.agent_id;
+              var chargeEnergyAfter = entry.energy_after != null ? entry.energy_after : (displayAgents[entry.agent_id] && displayAgents[entry.agent_id].energy != null ? displayAgents[entry.agent_id].energy + 1 : 1);
+              setTimeout(function () {
+                if (displayAgents[chargeAgentId]) {
+                  displayAgents[chargeAgentId].energy = chargeEnergyAfter;
+                }
+                updateRobots(displayAgents, lastDeathInRound);
+              }, 1200);
+            } else if (
+              (entry.type === "attack_hit" || entry.type === "attack_blocked") &&
+              entry.agent_id &&
+              entry.target_id
+            ) {
+              var fromSlot = findSlotByAgent(entry.agent_id);
+              var toSlot = findSlotByAgent(entry.target_id);
+              if (fromSlot) {
+                fromSlot.classList.add("attacker-slot");
+                var ac = fromSlot.querySelector('[data-role="card"]');
+                if (ac) ac.classList.add("attacker");
+                var gunEl = fromSlot.querySelector(".robot-gun");
+                if (gunEl && toSlot && arenaWrapper) {
+                  var gp1 = getSlotCenter(fromSlot);
+                  var gp2 = getSlotCenter(toSlot);
+                  var angleRad = Math.atan2(gp2.y - gp1.y, gp2.x - gp1.x);
+                  var angleDeg = (angleRad * 180 / Math.PI);
+                  gunEl.style.transform = "rotate(" + angleDeg + "deg)";
+                }
+              }
+              if (toSlot) {
+                var tc = toSlot.querySelector('[data-role="card"]');
+                if (tc) {
+                  tc.classList.add("target");
+                  if (entry.type === "attack_blocked") {
+                    tc.classList.add("blocking", "defending", "defend-flash");
+                    setTimeout(function () {
+                      tc.classList.remove("defend-flash");
+                    }, 1200);
+                  }
+                  if (entry.type === "attack_hit") {
+                    tc.classList.add("hit-flash");
+                    setTimeout(function () {
+                      tc.classList.remove("hit-flash");
+                    }, 1200);
+                  }
+                }
+              }
+              showLaser(fromSlot, toSlot, entry.type === "attack_blocked");
+              if (entry.type === "attack_hit" && entry.target_id && displayAgents[entry.target_id]) {
+                var thp = entry.target_hp_after != null ? entry.target_hp_after : 0;
+                displayAgents[entry.target_id].hp = thp;
+                if (thp <= 0) deadThisRound[entry.target_id] = true;
+              }
+              updateRobots(displayAgents, lastDeathInRound);
+            } else if (entry.type === "defend" && entry.agent_id) {
+            } else if (entry.type === "death" && entry.agent_id) {
+              deadThisRound[entry.agent_id] = true;
+              if (displayAgents[entry.agent_id]) {
+                displayAgents[entry.agent_id].alive = false;
+                displayAgents[entry.agent_id].hp = 0;
+              }
+              updateRobots(displayAgents, lastDeathInRound);
+            }
+
+            i += 1;
+            if (i >= sortedLog.length) {
+              clearInterval(effectTimer);
+              effectTimer = null;
+              setTimeout(function () {
+                clearEffects();
+                if (agentsAfter) {
+                  if (!battleState) battleState = {};
+                  battleState.agents = mergeAgents(battleState.agents, agentsAfter);
+                  battleState.round = round;
+                  battleState.lastDeathInRound = null;
+                  updateRobots();
+                }
+                isAnimatingRound = false;
+                updateArenaInfo();
+              }, LAST_STEP_DELAY_MS);
+            }
+          };
+
+          step();
+          effectTimer = setInterval(step, STEP_MS);
+        }
+
+        function findSlotByAgent(agentId) {
+          return Object.values(slotMap).find(
+            (slot) => slot.dataset.agentId === agentId
+          );
+        }
+
+        function bindConnect() {
+          connectBtn.addEventListener("click", function () {
+            const gid = (gameIdInput && gameIdInput.value) ? gameIdInput.value.trim() : "";
+            if (!gid) {
+              setStatus("game_id 를 입력하세요.", true);
+              return;
+            }
+            if (ws) {
+              ws.close();
+              ws = null;
+            }
+            setConnectButton(true);
+            setStatus("연결 시도 중…", false);
+
+            const url = WS_BASE + encodeURIComponent(gid);
+            ws = new WebSocket(url);
+
+            ws.onopen = function () {
+              setConnectButton(false);
+              setStatus("✅ 연결됨 (game_id=" + gid.slice(0, 8) + "…)", false);
+              if (statusHint) statusHint.style.display = "none";
+            };
+            ws.onclose = function (ev) {
+              setConnectButton(false);
+              const reason = ev.reason || "";
+              if (ev.code === 4000 || reason.indexOf("game_not_found") !== -1) {
+                setStatus("게임을 찾을 수 없습니다. game_id 확인.", true);
+              } else {
+                setStatus("연결 종료됨", false);
+              }
+              if (statusHint) statusHint.style.display = "";
+            };
+            ws.onerror = function () {
+              setConnectButton(false);
+              setStatus("WebSocket 오류 — 백엔드(localhost:8000) 실행 중인지 확인", true);
+            };
+            ws.onmessage = function (event) {
+              try {
+                const msg = JSON.parse(event.data);
+
+                if (msg.type === "error") {
+                  setStatus("오류: " + (msg.detail || "알 수 없음"), true);
+                  return;
+                }
+
+                if (msg.type === "initial") {
+                  battleState = msg.battle_state || { round: 0, phase: "waiting", agents: {} };
+                  updateRobots();
+                  updateArenaInfo();
+                  return;
+                }
+
+                if (msg.type === "state_update") {
+                  var incoming = msg.battle_state || { round: 0, phase: "waiting", agents: {} };
+                  battleState = battleState || { round: 0, phase: "waiting", agents: {} };
+                  battleState.round = incoming.round != null ? incoming.round : battleState.round;
+                  battleState.phase = incoming.phase != null ? incoming.phase : battleState.phase;
+                  battleState.countdown_ends_at = incoming.countdown_ends_at != null ? incoming.countdown_ends_at : battleState.countdown_ends_at;
+                  battleState.agents = mergeAgents(battleState.agents, incoming.agents);
+                  var agentIds = Object.keys(battleState.agents);
+                  var prevOrder = battleState.action_order && battleState.action_order.length ? battleState.action_order : [];
+                  var inOrder = incoming.action_order && incoming.action_order.length ? incoming.action_order : [];
+                  if (inOrder.length >= agentIds.length) {
+                    battleState.action_order = inOrder;
+                  } else if (prevOrder.length >= agentIds.length) {
+                    battleState.action_order = prevOrder;
+                  } else {
+                    battleState.action_order = agentIds.slice(0, 4);
+                  }
+                  updateRobots();
+                  updateArenaInfo();
+                  return;
+                }
+
+                if (msg.type === "round_end") {
+                  var round = msg.round || 0;
+                  var log = msg.log || [];
+                  var agentsAfter = msg.agents || null;
+                  if (!battleState) battleState = {};
+                  battleState.round = round;
+                  battleState.agents = mergeAgents(battleState.agents, agentsAfter);
+                  var afterIds = agentsAfter ? Object.keys(agentsAfter) : [];
+                  Object.keys(battleState.agents).forEach(function (id) {
+                    if (afterIds.indexOf(id) === -1) {
+                      if (!battleState.agents[id]) battleState.agents[id] = {};
+                      battleState.agents[id].alive = false;
+                      battleState.agents[id].hp = 0;
+                    }
+                  });
+                  appendGameLog(round, log);
+                  playRoundLog(round, log, battleState.agents);
+                  return;
+                }
+              } catch (e) {
+                console.error("WS message parse error", e);
+              }
+            };
+          });
+        }
+
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", init);
+        } else {
+          init();
+        }
+      })();
+    </script>
+  </body>
+</html>
+

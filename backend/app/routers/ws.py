@@ -26,18 +26,28 @@ async def websocket_spectate(
     try:
         game = db.query(Game).filter_by(id=game_id).first()
         if not game:
-            await websocket.close(code=1000)
+            try:
+                await websocket.send_text(
+                    json.dumps({"type": "error", "detail": "game_not_found"}, ensure_ascii=False)
+                )
+            except Exception:
+                pass
+            await websocket.close(code=4000, reason="game_not_found")
             return
 
-        # 현재 상태 구성 (배틀: battle_state 포함)
+        # 현재 상태 구성 (배틀: battle_state 항상 포함, 없으면 빈 상태)
         state: dict = {
             "type": "initial",
             "game_id": game.id,
             "game_type": game.type.value,
             "status": game.status.value,
         }
-        if game.type.value == "battle" and game.config:
-            state["battle_state"] = game.config.get("battle_state")
+        if game.type.value == "battle":
+            state["battle_state"] = (game.config or {}).get("battle_state") or {
+                "round": 0,
+                "phase": "waiting",
+                "agents": {},
+            }
 
         await manager.connect(game_id, websocket)
         await websocket.send_text(json.dumps(state, ensure_ascii=False))

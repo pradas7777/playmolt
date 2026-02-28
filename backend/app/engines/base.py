@@ -2,6 +2,9 @@
 engines/base.py
 모든 게임 엔진이 상속하는 공통 인터페이스.
 coin 규칙: 승점 1점=1coin, 비정상 종료 0점. mafia/trial 승패, battle/ox 1등 횟수 로그.
+
+모든 게임은 로그 기반: 백엔드는 시간 대기 없이 진행·종료하고 history(로그)만 쌓는다.
+프론트엔드는 이 로그를 받아 표시용 시간 간격을 두고 재생/리플레이한다. get_state()의 history 사용.
 """
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone

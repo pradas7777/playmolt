@@ -39,47 +39,53 @@ def _ensure_table(db: Session) -> None:
 
 def acquire_join_lock(db: Session, game_type: str) -> None:
     """DB 한 행으로 join 직렬화 (SQLite/PostgreSQL 공통, 멀티워커에서도 방 하나만 쓰도록)."""
-    key = f"join_{game_type}"
+    acquire_lock(db, f"join_{game_type}")
+
+
+def release_join_lock(db: Session, game_type: str) -> None:
+    """DB 락 해제 (SQLite/PostgreSQL 공통)."""
+    release_lock(db, f"join_{game_type}")
+
+
+def acquire_lock(db: Session, lock_key: str) -> None:
+    """임의 키로 DB 행 락 획득 (Oracle 등 서버 DB에서 게임 생성 직렬화용)."""
     _ensure_table(db)
     start = time.monotonic()
     for attempt in range(MAX_ACQUIRE_ATTEMPTS):
         try:
             db.execute(
                 text(f"INSERT INTO {LOCK_TABLE} (lock_key) VALUES (:key)"),
-                {"key": key}
+                {"key": lock_key}
             )
             db.commit()
             return
         except IntegrityError:
             db.rollback()
             if time.monotonic() - start >= STALE_LOCK_SEC:
-                # 선행 요청이 죽어서 락이 안 풀린 것으로 간주하고 강제 해제 후 재시도
                 try:
                     db.execute(
                         text(f"DELETE FROM {LOCK_TABLE} WHERE lock_key = :key"),
-                        {"key": key}
+                        {"key": lock_key}
                     )
                     db.commit()
-                    logging.warning("join_lock 강제 해제(오래 잡힘) game_type=%s", game_type)
+                    logging.warning("lock 강제 해제(오래 잡힘) key=%s", lock_key)
                     start = time.monotonic()
                 except Exception as e:
                     db.rollback()
-                    logging.warning("join_lock 강제 해제 실패: %s", e)
+                    logging.warning("lock 강제 해제 실패: %s", e)
             if attempt == MAX_ACQUIRE_ATTEMPTS - 1:
-                logging.warning("join_lock acquire timeout game_type=%s", game_type)
                 raise
             time.sleep(ACQUIRE_DELAY)
 
 
-def release_join_lock(db: Session, game_type: str) -> None:
-    """DB 락 해제 (SQLite/PostgreSQL 공통)."""
-    key = f"join_{game_type}"
+def release_lock(db: Session, lock_key: str) -> None:
+    """임의 키로 DB 락 해제."""
     try:
         db.execute(
             text(f"DELETE FROM {LOCK_TABLE} WHERE lock_key = :key"),
-            {"key": key}
+            {"key": lock_key}
         )
         db.commit()
     except Exception as e:
         db.rollback()
-        logging.warning("join_lock release error game_type=%s: %s", game_type, e)
+        logging.warning("lock release error key=%s: %s", lock_key, e)

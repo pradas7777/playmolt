@@ -51,6 +51,13 @@ def clean_db():
     yield
 
 
+@pytest.fixture(autouse=True)
+def use_ws_db():
+    """전체 스위트 실행 시 다른 모듈이 get_db를 덮어쓴 뒤에도 WebSocket 테스트는 test_ws.db 사용."""
+    app.dependency_overrides[get_db] = override_get_db
+    yield
+
+
 def test_ws_connect_unknown_game():
     """존재하지 않는 game_id로 연결 시 서버가 연결을 끊음 (WebSocketDisconnect)."""
     with pytest.raises(WebSocketDisconnect):

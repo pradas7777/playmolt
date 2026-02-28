@@ -28,8 +28,8 @@ def _get_action_lock(game_id: str) -> threading.Lock:
         return _action_locks[game_id]
 
 
-PHASES = ["waiting", "hint_1", "hint_2", "hint_3", "vote", "result", "end"]
-HINT_PHASES = ["hint_1", "hint_2", "hint_3"]
+PHASES = ["waiting", "hint", "vote", "result", "end"]
+HINT_PHASES = ["hint"]
 MAX_HINT_LEN = 100
 MAX_REASON_LEN = 100
 
@@ -251,7 +251,6 @@ class MafiaEngine(BaseGameEngine):
             return
 
         if phase == "vote":
-            # 집계: 최다 득표자 1명 추방
             votes = [p.get("target_id") for p in pending.values() if p.get("type") == "vote" and p.get("target_id")]
             from collections import Counter
             count = Counter(votes)
@@ -262,17 +261,36 @@ class MafiaEngine(BaseGameEngine):
                 candidates = [tid for tid, c in count.items() if c == max_votes]
                 eliminated_id = random.choice(candidates) if len(candidates) > 1 else candidates[0]
             eliminated_role = agents.get(eliminated_id, {}).get("role", "CITIZEN")
-            # 동점이면 WOLF 승리 규칙: 동점 시에도 최다 득표 1명 추방. 추방자가 WOLF면 CITIZEN 승.
             winner = "CITIZEN" if eliminated_role == "WOLF" else "WOLF"
+            vote_detail = [
+                {"voter_id": aid, "target_id": p.get("target_id"), "reason": p.get("reason", "")}
+                for aid, p in pending.items()
+            ]
             ms["phase"] = "result"
             ms["eliminated_id"] = eliminated_id
             ms["eliminated_role"] = eliminated_role
             ms["winner"] = winner
-            ms["vote_detail"] = [
-                {"voter_id": aid, "target_id": p.get("target_id"), "reason": p.get("reason", "")}
-                for aid, p in pending.items()
-            ]
+            ms["vote_detail"] = vote_detail
             ms["pending_actions"] = {}
+            # 리플레이용 로그: 투표 결과
+            ms.setdefault("history", []).append({
+                "phase": "vote_result",
+                "vote_detail": vote_detail,
+                "eliminated_id": eliminated_id,
+                "eliminated_role": eliminated_role,
+                "winner": winner,
+                # 관전/리플레이용: 최종 시점에 전체 역할·단어 공개
+                "citizen_word": ms.get("citizen_word"),
+                "wolf_word": ms.get("wolf_word"),
+                "agents": [
+                    {
+                        "agent_id": aid,
+                        "role": info.get("role"),
+                        "secret_word": info.get("secret_word"),
+                    }
+                    for aid, info in agents.items()
+                ],
+            })
             self._commit(ms)
             self.finish()
             return
@@ -348,15 +366,25 @@ class MafiaEngine(BaseGameEngine):
         self_submitted = agent.id in pending
 
         secret_word = _fix_word_encoding(ag.get("secret_word", "") or "")
+        # 플레이 중에는 자신의 팀(시민/늑대)을 알 수 없도록 숨기고,
+        # 게임이 끝난 뒤(result/end) 상태에서만 실제 역할을 공개한다.
+        if phase in ("result", "end"):
+            visible_role = ag.get("role", "CITIZEN")
+        else:
+            visible_role = "UNKNOWN"
         return {
             "gameStatus": self.game.status.value,
             "gameType": "mafia",
             "phase": phase,
-            "round": HINT_PHASES.index(phase) + 1 if phase in HINT_PHASES else (4 if phase == "vote" else 5),
+            "round": (
+                1 if phase in HINT_PHASES
+                else 2 if phase == "vote"
+                else 3
+            ),
             "self": {
                 "id": agent.id,
                 "name": agent.name,
-                "role": ag.get("role", "CITIZEN"),
+                "role": visible_role,
                 "secretWord": secret_word,
             },
             "participants": participant_list,
