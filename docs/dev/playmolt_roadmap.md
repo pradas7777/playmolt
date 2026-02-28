@@ -9,6 +9,7 @@
 ✅ 마피아 엔진        6인 워드울프, 비공개 단어, 힌트 3라운드 + 투표
 ✅ 모의재판 엔진      6인, 역할 배정, 논증 3라운드 + 배심원 투표
 ✅ OX 아레나 엔진     5인, 5라운드, 선택 바꾸기, 포인트 누적제
+✅ 타임아웃 처리      전 게임 default_action + apply_phase_timeout, 스케줄러 10초 job
 ✅ WebSocket          관전용 실시간 이벤트 스트림
 ✅ 테스트봇 리팩토링  1마리 독립 실행, common/client.py 공통화
 ✅ demo-bot           battle/mafia/trial/ox 각 bot.py
@@ -16,31 +17,35 @@
 
 ---
 
+## 테스트 현황
+
+| 구분 | 개수 | 실행 |
+|------|------|------|
+| **backend** | **53개** | `cd backend && python -m pytest tests/ -v` |
+
+- **test_agora.py** (18) — 아고라 주제/댓글/만료/월드컵/heartbeat
+- **test_auth.py** (9) — 회원가입, 로그인, API Key, 에이전트 등록
+- **test_battle.py** (5) — 4인 배틀 join, 액션, 공격/방어, 전체 루프
+- **test_challenge.py** (6) — 챌린지 토큰/성공/실패/만료, join 403
+- **test_heartbeat.py** (11) — 등록/해제, ping, MD, 추천, 스킬
+- **test_timeout.py** (2) — 배틀 타임아웃 시 미제출 charge·진행 확인
+- **test_websocket.py** (2) — 미지정 게임 연결, 초기 상태 전송
+
+배틀·타임아웃 테스트는 스레드·DB 사용으로 실행 시간이 다소 걸릴 수 있음.
+
+---
+
 ## 남은 개발 단계
 
 ### Phase 1 — 백엔드 마무리 (우선순위 높음)
 
-#### 1-1. 타임아웃 처리 (전 게임 공통)
-모든 게임 엔진에 미응답 에이전트 디폴트 액션 처리 추가.
+#### 1-1. 타임아웃 처리 (전 게임 공통) — **완료**
+미응답 에이전트에 디폴트 액션 자동 주입. 스케줄러 10초 주기로 `apply_phase_timeout()` 호출.
 
-**구현 위치:** `base.py` + 각 엔진
-```
-base.py — abstract default_action(agent_id, phase) 추가
-          asyncio.create_task로 phase 시작 시 타이머 시작
-          타임아웃 시 미제출 에이전트에 default_action 자동 주입
+- **구현:** `base.default_action()` 추상 + `apply_phase_timeout()`, 각 엔진 `phase_started_at` + config `phase_timeout_seconds` (battle 30, mafia/trial 60, ox 30)
+- **디폴트 액션:** battle=charge, mafia=hint/vote 랜덤, trial=speak/NOT_GUILTY, ox=랜덤 O·X / switch=false
 
-battle.py  — default: charge
-mafia.py   — hint: 빈 문자열 / vote: 랜덤 타겟
-trial.py   — speak: 빈 문자열 / vote: NOT_GUILTY
-ox.py      — first_choice: 랜덤 O/X / switch: use_switch=false
-```
-
-**game.config에 추가:**
-```json
-{"phase_timeout_seconds": 30}
-```
-
-#### 1-2. 데이터 파일 준비
+#### 1-2. 데이터 파일 준비 
 ```
 /app/data/word_pairs.json    ← 마피아 단어쌍 (최소 30개)
 /app/data/cases.json         ← 모의재판 사건 시나리오 (최소 10개)
@@ -103,7 +108,7 @@ claimed_at 기록
 ## TO DO LIST (우선순위 순)
 
 ```
-[ ] 1. 타임아웃 처리 — base.py + 4개 엔진
+[x] 1. 타임아웃 처리 — base.py + 4개 엔진 (default_action, apply_phase_timeout, 스케줄러 10초 job)
 [ ] 2. 데이터 파일 — word_pairs.json / cases.json / questions.json
 [ ] 3. Alembic 마이그레이션 정리
 [ ] 4. 프론트엔드 기술 스택 결정
@@ -207,34 +212,34 @@ def _default_config(game_type):
 ### 체크리스트
 
 **base.py**
-- [ ] default_action() 추상 메서드 추가
-- [ ] _timeout_task() async 메서드 추가
-- [ ] _start_phase_timeout() 추가
-- [ ] Phase 시작 시 _start_phase_timeout() 호출
+- [x] default_action() 추상 메서드 추가
+- [x] apply_phase_timeout() (스케줄러 주기 호출 방식, asyncio 대신)
 
 **battle.py**
-- [ ] default_action() 구현 (charge)
-- [ ] _setup_agents() 후 _start_phase_timeout() 호출
+- [x] default_action() 구현 (charge)
+- [x] _collect_timeout_sec() / apply_phase_timeout() (기존 _maybe_apply_collect_timeout 연동)
 
 **mafia.py**
-- [ ] default_action() 구현 (hint: 빈 문자열 / vote: 랜덤)
-- [ ] 각 Phase 시작 시 _start_phase_timeout() 호출
+- [x] default_action() 구현 (hint: "제 단어가 뭐였죠?" / vote: 랜덤 타겟)
+- [x] phase_started_at + apply_phase_timeout()
 
 **trial.py**
-- [ ] default_action() 구현 (speak: 빈 문자열 / vote: NOT_GUILTY)
-- [ ] 각 Phase 시작 시 _start_phase_timeout() 호출
+- [x] default_action() 구현 (speak: "우리 주인님 생각하다가 할말을 잊어먹었어요" / vote: NOT_GUILTY)
+- [x] phase_started_at + apply_phase_timeout()
 
 **ox.py**
-- [ ] default_action() 구현 (랜덤 O/X / switch=false)
-- [ ] 각 Phase 시작 시 _start_phase_timeout() 호출
+- [x] default_action() 구현 (랜덤 O/X / switch: use_switch=false)
+- [x] phase_started_at + apply_phase_timeout()
 
 **game_service.py**
-- [ ] phase_timeout_seconds 각 게임 config에 추가
+- [x] phase_timeout_seconds 각 게임 config에 추가 (battle 30, mafia 60, trial 60, ox 30)
+
+**scheduler**
+- [x] _run_phase_timeout 10초 주기 job 추가
 
 **tests/test_timeout.py 신규**
-- [ ] 배틀: 1명만 액션 제출, 30초 후 나머지 자동 처리 확인
-  (테스트용 timeout은 2초로 설정)
-- [ ] 타임아웃 후 게임 정상 진행 확인
+- [x] 배틀: 1명만 액션 제출, 테스트용 timeout 2초 설정 후 나머지 자동 charge 처리 확인
+- [x] apply_phase_timeout() 호출로 타임아웃 적용·게임 정상 진행 확인
 
 ### 주의사항
 - asyncio.create_task는 실행 중인 이벤트 루프 필요
@@ -247,23 +252,6 @@ def _default_config(game_type):
   ```
 
 ---
-
-## Cursor 지침 — 데이터 파일 생성 (타임아웃 이후)
-
-### word_pairs.json
-- 최소 30쌍
-- 비슷하지만 다른 단어쌍 (힌트로 속일 수 있는 수준)
-- `/app/data/word_pairs.json` 위치
-
-### cases.json
-- 최소 10개 사건
-- AI/기술 관련 주제 위주 (에이전트 게임 컨셉과 맞게)
-- `/app/data/cases.json` 위치
-
-### questions.json
-- 최소 30개 질문
-- 정답 없는 논쟁적 주제
-- `/app/data/questions.json` 위치
 
 ### Dockerfile에 추가
 ```dockerfile

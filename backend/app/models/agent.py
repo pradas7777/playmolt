@@ -2,7 +2,7 @@ import uuid
 import enum
 from datetime import datetime, timezone
 from typing import Optional
-from sqlalchemy import String, DateTime, ForeignKey, Integer, Text, Enum
+from sqlalchemy import String, DateTime, ForeignKey, Integer, Text, Enum, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
@@ -34,6 +34,11 @@ class Agent(Base):
     challenge_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    # Heartbeat (에이전트 주기 확인)
+    heartbeat_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    heartbeat_interval_hours: Mapped[int] = mapped_column(Integer, default=4)
+    heartbeat_last_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # 관계
     user: Mapped["User"] = relationship("User", back_populates="agent")

@@ -7,6 +7,7 @@ import json
 import logging
 import random
 import threading
+import time
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -103,6 +104,7 @@ class TrialEngine(BaseGameEngine):
         self.game.config = (self.game.config or {}) | {
             "trial_state": {
                 "phase": "opening",
+                "phase_started_at": time.time(),
                 "case": case,
                 "agents": agents,
                 "pending_actions": {},
@@ -190,6 +192,67 @@ class TrialEngine(BaseGameEngine):
             return 0
         return 0
 
+    def _phase_timeout_sec(self) -> int:
+        return (self.game.config or {}).get("phase_timeout_seconds", 60)
+
+    def default_action(self, agent_id: str) -> dict:
+        self.db.refresh(self.game)
+        ts = self._ts()
+        phase = ts.get("phase", "waiting")
+        agents = ts.get("agents", {})
+        role = agents.get(agent_id, {}).get("role", "")
+        if phase in ("opening", "argument"):
+            return {"type": "speak", "text": "우리 주인님 생각하다가 할말을 잊어먹었어요"}
+        if phase == "rebuttal":
+            if role in ("PROSECUTOR", "DEFENSE"):
+                return {"type": "speak", "text": "우리 주인님 생각하다가 할말을 잊어먹었어요"}
+            return {"type": "pass"}
+        if phase == "jury_vote":
+            if role == "JUROR":
+                return {"type": "vote", "verdict": "NOT_GUILTY"}
+            return {"type": "pass"}
+        if phase == "verdict":
+            if role == "JUDGE":
+                return {"type": "speak", "text": "우리 주인님 생각하다가 할말을 잊어먹었어요"}
+            return {"type": "pass"}
+        return {"type": "pass"}
+
+    def apply_phase_timeout(self) -> bool:
+        if self.game.status != GameStatus.running:
+            return False
+        lock = _get_action_lock(self.game.id)
+        with lock:
+            self.db.refresh(self.game)
+            ts = self._ts()
+            phase = ts.get("phase", "waiting")
+            if phase not in ("opening", "argument", "rebuttal", "jury_vote", "verdict"):
+                return False
+            need = self._required_submissions(ts)
+            pending = ts.get("pending_actions", {})
+            if len(pending) >= need:
+                return False
+            started = ts.get("phase_started_at") or 0
+            if time.time() - started < self._phase_timeout_sec():
+                return False
+            agents = ts.get("agents", {})
+            missing = []
+            if phase == "rebuttal":
+                missing = [aid for aid, ar in agents.items() if ar.get("role") in ("PROSECUTOR", "DEFENSE") and aid not in pending]
+            elif phase == "jury_vote":
+                missing = [aid for aid, ar in agents.items() if ar.get("role") == "JUROR" and aid not in pending]
+            elif phase == "verdict":
+                judge_id = next((aid for aid, ar in agents.items() if ar.get("role") == "JUDGE"), None)
+                missing = [judge_id] if judge_id and judge_id not in pending else []
+            else:
+                missing = [aid for aid in agents if aid not in pending]
+            for aid in missing:
+                pending[aid] = self.default_action(aid)
+            _logger.info("trial phase timeout game_id=%s phase=%s 미제출 처리 agent_ids=%s", self.game.id, phase, missing)
+            self._commit(ts)
+            if len(pending) >= need:
+                self._advance_phase()
+            return len(missing) > 0
+
     def _advance_phase(self):
         self.db.refresh(self.game)
         ts = self._ts()
@@ -198,7 +261,9 @@ class TrialEngine(BaseGameEngine):
         pending = ts.get("pending_actions", {})
 
         if phase == "opening":
-            ts["phase"] = "jury_first"
+            ts["phase"] = "argument"
+            ts["phase_started_at"] = time.time()
+            ts["argument_round"] = 1
             ts["pending_actions"] = {}
             ts.setdefault("history", []).append({"phase": "opening", "case_revealed": True})
             self._commit(ts)
@@ -231,15 +296,17 @@ class TrialEngine(BaseGameEngine):
             })
             ts["phase"] = "argument_2"
             ts["pending_actions"] = {}
+            if rnd >= self.ARGUMENT_ROUNDS:
+                ts["phase"] = "rebuttal"
+            else:
+                ts["argument_round"] = rnd + 1
+            ts["phase_started_at"] = time.time()
             self._commit(ts)
             return
 
-        if phase == "argument_2":
-            ts.setdefault("history", []).append({
-                "phase": "argument_2",
-                "speeches": [{"agent_id": aid, "text": p.get("text", "")} for aid, p in pending.items() if p.get("type") == "speak"]
-            })
-            ts["phase"] = "jury_final"
+        if phase == "rebuttal":
+            ts["phase"] = "jury_vote"
+            ts["phase_started_at"] = time.time()
             ts["pending_actions"] = {}
             self._commit(ts)
             return
@@ -257,6 +324,7 @@ class TrialEngine(BaseGameEngine):
                 "votes": [{"agent_id": aid, "verdict": p.get("verdict")} for aid, p in pending.items() if p.get("type") == "vote"]
             })
             ts["phase"] = "verdict"
+            ts["phase_started_at"] = time.time()
             ts["verdict"] = verdict
             ts["winner_team"] = winner_team
             ts["pending_actions"] = {}

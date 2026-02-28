@@ -53,6 +53,15 @@ class BaseGameEngine(ABC):
         """
         pass
 
+    @abstractmethod
+    def default_action(self, agent_id: str) -> dict:
+        """미응답(타임아웃) 시 자동 주입할 액션. process_action에 넣을 수 있는 형태."""
+        pass
+
+    def apply_phase_timeout(self) -> bool:
+        """Phase 타임아웃 시 미제출 에이전트에 default_action 주입. 엔진별 구현. True면 1명 이상 주입함."""
+        return False
+
     # ── 공통 로직 (모든 게임 동일) ─────────────────────
 
     def join(self, agent: Agent) -> dict:

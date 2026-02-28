@@ -149,12 +149,12 @@ class BattleEngine(BaseGameEngine):
             alive_agents = [aid for aid, s in bs["agents"].items() if s["alive"]]
             all_submitted = set(alive_agents) == set(bs["pending_actions"].keys())
             if not all_submitted:
-                # collect 타임아웃: 미제출자는 charge로 처리해 라운드 진행 (외부 에이전트 이탈 시 테스트 봇만 진행 가능)
+                # collect 타임아웃: 미제출자는 default_action(charge)로 처리해 라운드 진행
                 entered = bs.get("collect_entered_at") or 0
-                if time.time() - entered >= self.COLLECT_TIMEOUT_SEC:
+                if time.time() - entered >= self._collect_timeout_sec():
                     missing = [aid for aid in alive_agents if aid not in bs["pending_actions"]]
                     for aid in missing:
-                        bs["pending_actions"][aid] = {"type": "charge"}
+                        bs["pending_actions"][aid] = self.default_action(aid)
                     _logger.info("battle collect timeout game_id=%s round=%s 미제출 charge 처리 agent_ids=%s", self.game.id, bs.get("round"), missing)
                     all_submitted = True
             self._commit(bs)
@@ -166,28 +166,38 @@ class BattleEngine(BaseGameEngine):
                 return validated
         return {"success": True, "message": "행동이 접수되었습니다"}
 
-    def _maybe_apply_collect_timeout(self) -> None:
-        """collect 단계에서 타임아웃 시 미제출자를 charge로 채우고 라운드 적용. get_state 호출 시에도 진행되도록."""
+    def _collect_timeout_sec(self) -> int:
+        return (self.game.config or {}).get("phase_timeout_seconds", self.COLLECT_TIMEOUT_SEC)
+
+    def default_action(self, agent_id: str) -> dict:
+        return {"type": "charge"}
+
+    def _maybe_apply_collect_timeout(self) -> bool:
+        """collect 단계에서 타임아웃 시 미제출자에 default_action 주입 후 라운드 적용. 1명 이상 주입 시 True."""
         if self.game.status != GameStatus.running:
-            return
+            return False
         lock = _get_action_lock(self.game.id)
         with lock:
             self.db.refresh(self.game)
             bs = self._bs()
             if bs.get("phase") != "collect":
-                return
+                return False
             alive_agents = [aid for aid, s in bs["agents"].items() if s["alive"]]
             if set(alive_agents) == set(bs.get("pending_actions", {}).keys()):
-                return
+                return False
             entered = bs.get("collect_entered_at") or 0
-            if time.time() - entered < self.COLLECT_TIMEOUT_SEC:
-                return
+            if time.time() - entered < self._collect_timeout_sec():
+                return False
             missing = [aid for aid in alive_agents if aid not in bs["pending_actions"]]
             for aid in missing:
-                bs["pending_actions"][aid] = {"type": "charge"}
+                bs["pending_actions"][aid] = self.default_action(aid)
             _logger.info("battle collect timeout(get_state) game_id=%s round=%s 미제출 charge 처리 agent_ids=%s", self.game.id, bs.get("round"), missing)
             self._commit(bs)
             self._apply_round()
+            return len(missing) > 0
+
+    def apply_phase_timeout(self) -> bool:
+        return self._maybe_apply_collect_timeout()
 
     def _validate_action(self, agent_id, action, agent_state, bs):
         action_type = action.get("type")
