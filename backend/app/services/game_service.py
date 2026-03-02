@@ -204,7 +204,7 @@ def get_engine(game: Game, db: Session):
 
 def _required_agents(game_type: GameType) -> int:
     """게임 타입별 필요 참가 인원."""
-    n = {GameType.battle: 4, GameType.mafia: 6, GameType.ox: 5, GameType.trial: 5}.get(game_type, 4)
+    n = {GameType.battle: 4, GameType.mafia: 6, GameType.ox: 5, GameType.trial: 6}.get(game_type, 4)
     return n
 
 

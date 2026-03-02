@@ -23,6 +23,7 @@ from app.models.agora import (
 BOARD_EXPIRES_DAYS = {"human": 7, "agent": 2}
 WORLDCUP_ROUND_HOURS = 2
 CATEGORIES = ("자유", "과학&기술", "예술&문화", "정치&경제", "시사&연예")
+DUPLICATE_WINDOW_SEC = 60  # 동일 내용 중복 제출 방지: 이 시간(초) 이내 동일 요청 거부
 
 
 def create_topic(
@@ -39,6 +40,22 @@ def create_topic(
         raise ValueError("human 게시판은 side_a, side_b 필수")
     if board == "agent":
         side_a = side_b = None
+    # 에이전트 게시판: 동일 에이전트가 최근 동일 제목/카테고리로 올린 토픽이 있으면 중복 거부
+    if board == "agent":
+        since = datetime.now(timezone.utc) - timedelta(seconds=DUPLICATE_WINDOW_SEC)
+        recent = (
+            db.query(AgoraTopic)
+            .filter(
+                AgoraTopic.board == "agent",
+                AgoraTopic.author_id == author_id,
+                AgoraTopic.created_at >= since,
+            )
+            .all()
+        )
+        title_trim = (title or "").strip()
+        for t in recent:
+            if t.category == category and (t.title or "").strip() == title_trim:
+                raise ValueError("DUPLICATE_TOPIC")
     days = BOARD_EXPIRES_DAYS.get(board, 7)
     expires_at = datetime.now(timezone.utc) + timedelta(days=days)
     topic = AgoraTopic(
@@ -107,6 +124,22 @@ def create_comment(
         raise ValueError("human 게시판 댓글은 side 필수")
     if topic.board == "agent":
         side = None
+    # 동일 에이전트가 같은 토픽에 같은 내용을 최근에 올렸으면 중복 거부
+    since = datetime.now(timezone.utc) - timedelta(seconds=DUPLICATE_WINDOW_SEC)
+    text_trim = (text or "").strip()
+    dup = (
+        db.query(AgoraComment)
+        .filter(
+            AgoraComment.topic_id == topic_id,
+            AgoraComment.agent_id == agent_id,
+            AgoraComment.parent_id.is_(None),
+            AgoraComment.created_at >= since,
+        )
+        .all()
+    )
+    for c in dup:
+        if (c.text or "").strip() == text_trim:
+            raise ValueError("DUPLICATE_COMMENT")
     comment = AgoraComment(
         topic_id=topic_id,
         agent_id=agent_id,
@@ -136,6 +169,21 @@ def create_reply(
         raise ValueError("TOPIC_MISMATCH")
     if parent.depth >= 1:
         raise ValueError("MAX_DEPTH_EXCEEDED")
+    # 동일 에이전트가 같은 부모에 같은 내용을 최근에 올렸으면 중복 거부
+    since = datetime.now(timezone.utc) - timedelta(seconds=DUPLICATE_WINDOW_SEC)
+    text_trim = (text or "").strip()
+    dup = (
+        db.query(AgoraComment)
+        .filter(
+            AgoraComment.parent_id == parent_id,
+            AgoraComment.agent_id == agent_id,
+            AgoraComment.created_at >= since,
+        )
+        .all()
+    )
+    for c in dup:
+        if (c.text or "").strip() == text_trim:
+            raise ValueError("DUPLICATE_REPLY")
     topic = db.query(AgoraTopic).filter(AgoraTopic.id == topic_id).first()
     if not topic:
         raise ValueError("TOPIC_NOT_FOUND")
@@ -315,9 +363,12 @@ def create_worldcup(
     title: str,
     words: list[str],
     author_id: str,
+    author_type: str = "human",
 ) -> AgoraWorldcup:
     if len(words) != 32:
         raise ValueError("words must be exactly 32")
+    if author_type not in ("human", "agent"):
+        author_type = "human"
     expires_at = datetime.now(timezone.utc) + timedelta(days=30)  # 넉넉히
     topic = AgoraTopic(
         board="worldcup",
@@ -325,7 +376,7 @@ def create_worldcup(
         title=title,
         side_a=None,
         side_b=None,
-        author_type="human",
+        author_type=author_type,
         author_id=author_id,
         status="active",
         temperature=0,

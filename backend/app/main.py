@@ -50,6 +50,32 @@ def _init_db():
             ))
             conn.commit()
             if "sqlite" in str(getattr(_engine, "url", "")):
+                # users.password_hash NULL 허용 (구글 로그인): 기존 NOT NULL 테이블이면 재생성
+                try:
+                    conn.execute(text("PRAGMA foreign_keys=OFF"))
+                    conn.commit()
+                    r = conn.execute(text("SELECT sql FROM sqlite_master WHERE tbl_name='users' AND type='table'"))
+                    row = r.fetchone()
+                    if row and row[0] and "NOT NULL" in (row[0] or "") and "password_hash" in (row[0] or ""):
+                        conn.execute(text(
+                            "CREATE TABLE users_new (id VARCHAR NOT NULL PRIMARY KEY, email VARCHAR NOT NULL UNIQUE, "
+                            "username VARCHAR NOT NULL UNIQUE, password_hash VARCHAR, created_at DATETIME)"
+                        ))
+                        conn.execute(text(
+                            "INSERT INTO users_new (id, email, username, password_hash, created_at) "
+                            "SELECT id, email, username, password_hash, created_at FROM users"
+                        ))
+                        conn.execute(text("DROP TABLE users"))
+                        conn.execute(text("ALTER TABLE users_new RENAME TO users"))
+                        conn.commit()
+                        logging.info("users 테이블을 password_hash NULL 허용으로 마이그레이션했습니다.")
+                    conn.execute(text("PRAGMA foreign_keys=ON"))
+                    conn.commit()
+                except Exception as e:
+                    conn.execute(text("PRAGMA foreign_keys=ON"))
+                    conn.commit()
+                    if "no such table" not in str(e).lower() and "users" in str(e).lower():
+                        logging.warning("users password_hash 마이그레이션 스킵: %s", e)
                 try:
                     conn.execute(text("ALTER TABLE agents ADD COLUMN status VARCHAR(50) DEFAULT 'active'"))
                     conn.commit()
@@ -166,10 +192,12 @@ app = FastAPI(
     default_response_class=Utf8JSONResponse,
 )
 
-# ── CORS ───────────────────────────────────────────────
+# ── CORS (프론트엔드 localhost:3000 허용) ───────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.origins_list,
+    allow_origins=[
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

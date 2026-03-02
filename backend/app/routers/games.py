@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import logging
 from datetime import datetime, timezone, timedelta
 
@@ -19,7 +20,7 @@ from app.core.join_queue import (
 from app.models.api_key import ApiKey
 from app.models.agent import Agent, AgentStatus
 from app.models.game import Game, GameParticipant, GameStatus
-from app.schemas.game import JoinGameRequest, ActionRequest
+from app.schemas.game import JoinGameRequest, ActionRequest, GameListItem, GameDetailResponse
 from app.services.game_service import create_game_for_agents, get_engine
 from app.core.config import settings
 
@@ -61,6 +62,40 @@ def _close_abandoned_game_if_any(agent_id: str, db: Session) -> None:
 router = APIRouter(prefix="/api/games", tags=["games"])
 
 
+@router.get("", response_model=list[GameListItem])
+def list_games(
+    game_type: str | None = Query(None, description="battle | ox | mafia | trial"),
+    status: str | None = Query(None, description="waiting | running | finished"),
+    db: Session = Depends(get_db),
+):
+    """게임 목록 (대시보드/월드맵용). 인증 불필요."""
+    q = db.query(Game)
+    if game_type:
+        q = q.filter(Game.type == game_type)
+    if status:
+        q = q.filter(Game.status == status)
+    q = q.order_by(Game.created_at.desc())
+    games = q.limit(200).all()
+    out = []
+    for g in games:
+        gtype = g.type.value if hasattr(g.type, "value") else str(g.type)
+        gstatus = g.status.value if hasattr(g.status, "value") else str(g.status)
+        count = len(g.participants) if g.participants else 0
+        created = g.created_at.isoformat() if getattr(g.created_at, "isoformat", None) else str(g.created_at)
+        matched_at = None
+        if gstatus == "running":
+            if gtype == "battle" and g.config:
+                bs = g.config.get("battle_state") or {}
+                matched_at = bs.get("matched_at")
+            elif gtype in ("ox", "mafia", "trial") and g.started_at:
+                _dt = g.started_at
+                if getattr(_dt, "tzinfo", None) is None:
+                    _dt = _dt.replace(tzinfo=timezone.utc)
+                matched_at = _dt.timestamp()
+        out.append(GameListItem(id=g.id, type=gtype, status=gstatus, participant_count=count, created_at=created, matched_at=matched_at))
+    return out
+
+
 @router.get("/meta")
 def get_games_meta():
     """게임별 필요 인원 등 메타 정보."""
@@ -86,6 +121,269 @@ def get_games_meta():
             "required_agents": get_required_count("trial"),
         },
     }
+
+
+def _game_to_detail(g: Game) -> GameDetailResponse:
+    gtype = g.type.value if hasattr(g.type, "value") else str(g.type)
+    gstatus = g.status.value if hasattr(g.status, "value") else str(g.status)
+    count = len(g.participants) if g.participants else 0
+    created = g.created_at.isoformat() if getattr(g.created_at, "isoformat", None) else str(g.created_at) if g.created_at else None
+    started = g.started_at.isoformat() if g.started_at and getattr(g.started_at, "isoformat", None) else str(g.started_at) if g.started_at else None
+    finished = g.finished_at.isoformat() if g.finished_at and getattr(g.finished_at, "isoformat", None) else str(g.finished_at) if g.finished_at else None
+    return GameDetailResponse(id=g.id, type=gtype, status=gstatus, participant_count=count, created_at=created, started_at=started, finished_at=finished)
+
+
+@router.get("/{game_id}/spectator-state")
+def get_spectator_state(game_id: str, db: Session = Depends(get_db)):
+    """
+    관전용 게임 상태 (인증 불필요).
+    battle: battle_state 반환, agents에 에이전트 이름 포함.
+    ox: ox_state 반환, agents에 에이전트 이름 포함.
+    finished 시 winner_id, results 포함.
+    """
+    game = db.query(Game).filter(Game.id == game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="게임을 찾을 수 없습니다.")
+    gtype = game.type.value if hasattr(game.type, "value") else str(game.type)
+    gstatus = game.status.value if hasattr(game.status, "value") else str(game.status)
+    out = {"game_id": game.id, "game_type": gtype, "status": gstatus}
+
+    matched_at = None
+    if gtype == "battle":
+        bs = copy.deepcopy((game.config or {}).get("battle_state") or {})
+        agents = bs.get("agents") or {}
+        for aid, astate in agents.items():
+            agent = db.query(Agent).filter_by(id=aid).first()
+            astate["name"] = agent.name if agent else aid
+        bs["agents"] = agents
+        out["battle_state"] = bs
+        if gstatus == "running":
+            matched_at = bs.get("matched_at")
+    elif gtype == "ox":
+        os_raw = copy.deepcopy((game.config or {}).get("ox_state") or {})
+        agents = os_raw.get("agents") or {}
+        for aid in agents:
+            agent = db.query(Agent).filter_by(id=aid).first()
+            agents[aid]["name"] = agent.name if agent else aid
+        os_raw["agents"] = agents
+        out["ox_state"] = os_raw
+        if gstatus == "running" and game.started_at:
+            _dt = game.started_at
+            if getattr(_dt, "tzinfo", None) is None:
+                _dt = _dt.replace(tzinfo=timezone.utc)
+            matched_at = _dt.timestamp()
+    elif gtype == "mafia":
+        ms_raw = copy.deepcopy((game.config or {}).get("mafia_state") or {})
+        agents = ms_raw.get("agents") or {}
+        phase = ms_raw.get("phase", "waiting")
+        for aid in agents:
+            agent = db.query(Agent).filter_by(id=aid).first()
+            agents[aid]["name"] = agent.name if agent else aid
+        if phase not in ("result", "end"):
+            ms_raw["citizen_word"] = None
+            ms_raw["wolf_word"] = None
+            for aid, a in agents.items():
+                a.pop("secret_word", None)
+                a.pop("role", None)
+        ms_raw["agents"] = agents
+        out["mafia_state"] = ms_raw
+        if gstatus == "running" and game.started_at:
+            _dt = game.started_at
+            if getattr(_dt, "tzinfo", None) is None:
+                _dt = _dt.replace(tzinfo=timezone.utc)
+            matched_at = _dt.timestamp()
+    elif gtype == "trial":
+        ts_raw = copy.deepcopy((game.config or {}).get("trial_state") or {})
+        agents = ts_raw.get("agents") or {}
+        for aid in agents:
+            agent = db.query(Agent).filter_by(id=aid).first()
+            agents[aid] = dict(agents[aid])
+            agents[aid]["name"] = agent.name if agent else aid
+        ts_raw["agents"] = agents
+        out["trial_state"] = ts_raw
+        if gstatus == "running" and game.started_at:
+            _dt = game.started_at
+            if getattr(_dt, "tzinfo", None) is None:
+                _dt = _dt.replace(tzinfo=timezone.utc)
+            matched_at = _dt.timestamp()
+    else:
+        if gstatus == "running" and game.started_at:
+            _dt = game.started_at
+            if getattr(_dt, "tzinfo", None) is None:
+                _dt = _dt.replace(tzinfo=timezone.utc)
+            matched_at = _dt.timestamp()
+        if matched_at is not None:
+            out["matched_at"] = matched_at
+        return out
+
+    if matched_at is not None:
+        out["matched_at"] = matched_at
+
+    if gstatus == "finished" and game.participants:
+        winner = next((p for p in game.participants if getattr(p, "result", None) == "win"), None)
+        out["winner_id"] = winner.agent_id if winner else None
+        sorted_p = sorted(
+            game.participants,
+            key=lambda x: (0 if getattr(x, "result", None) == "win" else 1, -(getattr(x, "points_earned", 0) or 0)),
+        )
+        out["results"] = [
+            {"agent_id": p.agent_id, "points": getattr(p, "points_earned", 0) or 0, "rank": i}
+            for i, p in enumerate(sorted_p, start=1)
+        ]
+    return out
+
+
+@router.get("/{game_id}/history")
+def get_game_logs(game_id: str, db: Session = Depends(get_db)):
+    """
+    리플레이용 전체 이벤트 로그.
+    battle: battle_state.history + agents_meta.
+    ox: ox_state.history (라운드별 question/distribution/choices) + agents_meta.
+    인증 불필요. (경로: /history — /logs는 일부 환경에서 라우트 충돌 가능)
+    """
+    game = db.query(Game).filter(Game.id == game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="게임을 찾을 수 없습니다.")
+    gtype = game.type.value if hasattr(game.type, "value") else str(game.type)
+
+    if gtype == "battle":
+        bs = copy.deepcopy((game.config or {}).get("battle_state") or {})
+        agents_meta = {}
+        for aid in bs.get("agents") or {}:
+            agent = db.query(Agent).filter_by(id=aid).first()
+            agents_meta[aid] = {"name": agent.name if agent else aid}
+        history = list(bs.get("history") or [])
+        return {"game_id": game.id, "game_type": gtype, "history": history, "agents_meta": agents_meta}
+
+    if gtype == "ox":
+        os_raw = (game.config or {}).get("ox_state") or {}
+        agents_meta = {}
+        for aid in os_raw.get("agents") or {}:
+            agent = db.query(Agent).filter_by(id=aid).first()
+            agents_meta[aid] = {"name": agent.name if agent else aid}
+        history = list(os_raw.get("history") or [])
+        return {"game_id": game.id, "game_type": gtype, "history": history, "agents_meta": agents_meta}
+
+    if gtype == "mafia":
+        ms_raw = (game.config or {}).get("mafia_state") or {}
+        agents_meta = {}
+        for aid in ms_raw.get("agents") or {}:
+            agent = db.query(Agent).filter_by(id=aid).first()
+            agents_meta[aid] = {"name": agent.name if agent else aid}
+        history = list(ms_raw.get("history") or [])
+        return {"game_id": game.id, "game_type": gtype, "history": history, "agents_meta": agents_meta}
+
+    if gtype == "trial":
+        ts_raw = (game.config or {}).get("trial_state") or {}
+        agents_meta = {}
+        for aid in ts_raw.get("agents") or {}:
+            agent = db.query(Agent).filter_by(id=aid).first()
+            agents_meta[aid] = {"name": agent.name if agent else aid}
+        history = list(ts_raw.get("history") or [])
+        return {"game_id": game.id, "game_type": gtype, "history": history, "agents_meta": agents_meta}
+
+    return {"game_id": game.id, "game_type": gtype, "history": [], "agents_meta": {}}
+
+
+def _build_game_summary(game: Game, db: Session) -> str:
+    """게임 config 기준 한 줄 요약. finished 게임만 의미 있는 결과 반환."""
+    gtype = game.type.value if hasattr(game.type, "value") else str(game.type)
+    config = game.config or {}
+
+    if gtype == "battle":
+        bs = config.get("battle_state") or {}
+        history = bs.get("history") or []
+        agents = bs.get("agents") or {}
+        if not history:
+            return "배틀 아레나 경기 종료"
+        last_entry = history[-1]
+        round_num = last_entry.get("round", 0)
+        log = last_entry.get("log") or []
+        winner_id = None
+        for e in reversed(log):
+            if e.get("type") == "final_winner_by_attack_count":
+                winner_id = e.get("agent_id")
+                break
+        if not winner_id:
+            alive = [aid for aid, s in agents.items() if s.get("alive")]
+            if len(alive) == 1:
+                winner_id = alive[0]
+        if winner_id:
+            agent = db.query(Agent).filter_by(id=winner_id).first()
+            name = agent.name if agent else winner_id
+            return f"{round_num}라운드에 {name} 승리"
+        return f"배틀 아레나 {round_num}라운드 경기 종료"
+
+    if gtype == "ox":
+        os_raw = config.get("ox_state") or {}
+        agents_dict = os_raw.get("agents") or {}
+        if not agents_dict:
+            return "OX 퀴즈 경기 종료"
+        scoreboard = sorted(
+            [{"agent_id": aid, "points": a.get("total_points", 0)} for aid, a in agents_dict.items()],
+            key=lambda x: -x["points"],
+        )
+        top = scoreboard[0]
+        agent = db.query(Agent).filter_by(id=top["agent_id"]).first()
+        name = agent.name if agent else top["agent_id"]
+        return f"{name} {top['points']}점으로 승리"
+
+    if gtype == "mafia":
+        ms = config.get("mafia_state") or {}
+        winner = ms.get("winner", "")
+        citizen_word = (ms.get("citizen_word") or "").strip() or "?"
+        wolf_word = (ms.get("wolf_word") or "").strip() or "?"
+        if winner == "CITIZEN":
+            return f"시민 승리 <{citizen_word} / {wolf_word}>"
+        if winner == "WOLF":
+            return f"늑대 승리 <{citizen_word} / {wolf_word}>"
+        return "마피아 게임 경기 종료"
+
+    if gtype == "trial":
+        ts = config.get("trial_state") or {}
+        case = ts.get("case") or {}
+        title = (case.get("title") or "").strip() or "재판"
+        verdict = ts.get("verdict", "")
+        winner_team = ts.get("winner_team", "")
+        if winner_team == "PROSECUTOR":
+            side = "유죄 측 승리"
+        elif winner_team == "DEFENSE":
+            side = "무죄 측 승리"
+        else:
+            side = "종료"
+        return f"{title} → 최종결과 ({side})"
+
+    return "경기 종료"
+
+
+@router.get("/{game_id}/summary")
+def get_game_summary(game_id: str, db: Session = Depends(get_db)):
+    """
+    최근 게임 로그용 한 줄 요약 (인증 불필요).
+    battle: N라운드에 {에이전트명} 승리
+    ox: {에이전트명} N점으로 승리
+    mafia: 시민/늑대 승리 <시민단어 / 늑대단어>
+    trial: {재판 주제} → 최종결과 (무죄/유죄 측 승리)
+    """
+    gid = (game_id or "").strip()
+    game = db.query(Game).filter(Game.id == gid).first()
+    if not game:
+        logger.warning("get_game_summary: game not found game_id=%r (list와 동일 백엔드/DB인지 확인)", gid)
+        return {"game_id": gid, "game_type": "unknown", "finished_at": None, "message": "경기 종료"}
+    gtype = game.type.value if hasattr(game.type, "value") else str(game.type)
+    finished = game.finished_at or game.created_at
+    finished_iso = finished.isoformat() if getattr(finished, "isoformat", None) else str(finished) if finished else None
+    message = _build_game_summary(game, db)
+    return {"game_id": game.id, "game_type": gtype, "finished_at": finished_iso, "message": message}
+
+
+@router.get("/{game_id}", response_model=GameDetailResponse)
+def get_game_detail(game_id: str, db: Session = Depends(get_db)):
+    """단일 게임 상세 (대시보드/관전용). 인증 불필요."""
+    game = db.query(Game).filter(Game.id == game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="게임을 찾을 수 없습니다.")
+    return _game_to_detail(game)
 
 
 def _get_agent(account: ApiKey, db: Session) -> Agent:
@@ -227,6 +525,12 @@ def post_action(
     result = engine.process_action(agent, body.model_dump())
 
     if not result["success"]:
+        err = result.get("error", "")
+        expected = result.get("expected_action", "")
+        logger.info(
+            "action 400 game_id=%s agent_id=%s error=%s expected_action=%s",
+            game_id, agent.id, err, expected,
+        )
         raise HTTPException(400, detail=result)
 
     return result

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -144,6 +144,44 @@ def _compute_agent_stats(db: Session, agent_id: str) -> tuple[dict[str, GameType
     total_rate = total_wins / (total_wins + total_losses) if (total_wins + total_losses) > 0 else 0.0
     total_stats = GameTypeStats(wins=total_wins, losses=total_losses, win_rate=round(total_rate, 4))
     return game_stats, total_stats
+
+
+@router.get("/me/challenge")
+def get_my_challenge(
+    account: ApiKey = Depends(get_current_account),
+    db: Session = Depends(get_db),
+):
+    """
+    현재 에이전트의 챌린지 정보 조회.
+    - active면 204 No Content
+    - pending이면 200 + ChallengeInfo (token/instruction/만료까지 남은 시간)
+    """
+    agent = db.query(Agent).filter(Agent.api_key_id == account.id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="등록된 에이전트가 없습니다. POST /api/agents/register로 먼저 등록하세요.")
+
+    if agent.status != AgentStatus.pending:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    now = datetime.now(timezone.utc)
+    token = agent.challenge_token
+    expires_at = agent.challenge_expires_at
+    if expires_at is not None and getattr(expires_at, "tzinfo", None) is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if not token or expires_at is None or expires_at < now:
+        token = str(uuid.uuid4())
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=CHALLENGE_EXPIRES_SECONDS)
+        agent.challenge_token = token
+        agent.challenge_expires_at = expires_at
+        db.commit()
+
+    remaining = int(max(0, (expires_at - now).total_seconds()))
+    return ChallengeInfo(
+        token=token,
+        instruction=CHALLENGE_INSTRUCTION.format(token=token),
+        expires_in_seconds=remaining,
+    )
 
 
 @router.get("/me", response_model=AgentMeResponse)

@@ -25,3 +25,25 @@ class GameResponse(BaseModel):
     game_type: str
     status: str
     message: str
+
+
+class GameListItem(BaseModel):
+    """GET /api/games 목록용."""
+    id: str
+    type: str
+    status: str
+    participant_count: int
+    created_at: Optional[str] = None
+    # battle running 게임이 매칭 직후 대기 중일 때(1라운드 시작 전 10초). 월드맵 배너 표시용.
+    matched_at: Optional[float] = None
+
+
+class GameDetailResponse(BaseModel):
+    """GET /api/games/{id} 단일 게임 상세 (대시보드/관전용)."""
+    id: str
+    type: str
+    status: str
+    participant_count: int
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None

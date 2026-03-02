@@ -1,5 +1,6 @@
 """
 OX 아레나 엔진. 5인, 5라운드. question_open → first_choice → reveal → switch → final_result.
+스위치(use_switch)는 5라운드 전체에서 에이전트당 단 1회만 사용 가능. 사용 후 switch_available은 다음 라운드에서도 False 유지.
 """
 import copy
 import json
@@ -106,6 +107,17 @@ class OxEngine(BaseGameEngine):
         flag_modified(self.game, "config")
         self.db.commit()
 
+    def _broadcast_ox_state(self):
+        """관전용: 현재 ox_state를 에이전트 이름 보강 후 브로드캐스트."""
+        from app.core.connection_manager import manager
+        to_send = copy.deepcopy(self._os())
+        agents = to_send.get("agents") or {}
+        for aid in agents:
+            agent = self.db.query(Agent).filter_by(id=aid).first()
+            agents[aid]["name"] = agent.name if agent else aid
+        to_send["agents"] = agents
+        manager.schedule_broadcast(self.game.id, {"type": "state_update", "ox_state": to_send})
+
     def _os(self) -> dict:
         return copy.deepcopy((self.game.config or {}).get("ox_state", {}))
 
@@ -150,7 +162,17 @@ class OxEngine(BaseGameEngine):
 
             self._commit(os)
 
-            if len(os.get("pending_actions", {})) >= len(agents):
+            if phase == "switch" and len(os.get("pending_actions", {})) >= len(agents):
+                # 10초 후에 진행 (모두 이미 스위치 사용했으면 즉시 진행)
+                any_switch_available = any(
+                    (agents.get(aid) or {}).get("switch_available") for aid in agents
+                )
+                os = self._os()
+                os["switch_advance_at"] = (
+                    (time.time() + 10) if any_switch_available else time.time()
+                )
+                self._commit(os)
+            elif len(os.get("pending_actions", {})) >= len(agents):
                 self._advance_phase()
 
         return {"success": True, "message": "제출되었습니다"}
@@ -167,6 +189,28 @@ class OxEngine(BaseGameEngine):
         if phase == "switch":
             return {"type": "switch", "use_switch": False, "comment": ""}
         return {"type": "first_choice", "choice": "O", "comment": ""}
+
+    def try_advance_switch_after_delay(self) -> bool:
+        """스위치 단계에서 전원 제출 후 10초(또는 즉시) 경과 시 다음 단계로 진행."""
+        if self.game.status != GameStatus.running:
+            return False
+        lock = _get_action_lock(self.game.id)
+        with lock:
+            self.db.refresh(self.game)
+            os = self._os()
+            if os.get("phase") != "switch":
+                return False
+            agents = os.get("agents", {})
+            pending = os.get("pending_actions", {})
+            if len(pending) < len(agents):
+                return False
+            advance_at = os.get("switch_advance_at")
+            if advance_at is None or time.time() < advance_at:
+                return False
+            os.pop("switch_advance_at", None)
+            self._commit(os)
+            self._advance_phase()
+            return True
 
     def apply_phase_timeout(self) -> bool:
         if self.game.status != GameStatus.running:
@@ -209,6 +253,7 @@ class OxEngine(BaseGameEngine):
             os["phase"] = "reveal"
             os["pending_actions"] = {}
             self._commit(os)
+            self._broadcast_ox_state()
             self._advance_phase()
             return
 
@@ -217,6 +262,7 @@ class OxEngine(BaseGameEngine):
             os["phase_started_at"] = time.time()
             os["pending_actions"] = {}
             self._commit(os)
+            self._broadcast_ox_state()
             return
 
         if phase == "switch":
@@ -276,6 +322,7 @@ class OxEngine(BaseGameEngine):
                 "choices": choices,
             })
             self._commit(os)
+            self._broadcast_ox_state()
 
             # 다음 라운드 또는 게임 종료
             rnd = os.get("round", 1)
@@ -295,7 +342,9 @@ class OxEngine(BaseGameEngine):
                     os["agents"][aid]["first_choice"] = None
                     os["agents"][aid]["final_choice"] = None
                     os["agents"][aid]["comment"] = ""
+                    # switch_available / switch_used 는 리셋하지 않음 (5R 전체 1회만 사용)
                 self._commit(os)
+                self._broadcast_ox_state()
             return
 
         self._commit(os)

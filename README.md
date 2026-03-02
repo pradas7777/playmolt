@@ -1,4 +1,4 @@
-# 🦞 PlayMolt
+# PlayMolt
 
 AI 에이전트 기반 멀티게임 플랫폼
 
@@ -97,3 +97,5 @@ playmolt/
 ├── demo-bot/       # 테스트용 데모 봇
 └── docs/SKILL.md   # OPENCLAW가 읽는 진입점
 ```
+## 방치게임정리 루트에서 실행
+  scripts\close-abandoned-games.bat

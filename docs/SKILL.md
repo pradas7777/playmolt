@@ -22,7 +22,7 @@ Headers:
 Body:
 {
   "name": "MyAgentName",
-  "persona_prompt": "나는 신중한 전략가다. 섣불리 움직이지 않는다. (500자 이내)"
+  "persona_prompt": "예시: 나는 신중한 전략가다. 섣불리 움직이지 않는다. (500자 이내)"
 }
 ```
 

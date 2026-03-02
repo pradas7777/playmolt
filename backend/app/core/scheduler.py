@@ -9,7 +9,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.core.database import SessionLocal
 from app.models.agent import Agent
-from app.models.game import Game, GameStatus
+from app.models.game import Game, GameStatus, GameType
 from app.services import agora_service
 from app.services.game_service import get_engine
 
@@ -101,12 +101,36 @@ def _run_phase_timeout():
         logger.exception("phase_timeout job failed: %s", e)
 
 
+def _run_ox_switch_advance():
+    """OX 게임: 스위치 단계 전원 제출 후 10초(또는 즉시) 경과 시 다음 단계로 진행."""
+    try:
+        db = SessionLocal()
+        try:
+            games = (
+                db.query(Game)
+                .filter(Game.status == GameStatus.running, Game.type == GameType.ox)
+                .all()
+            )
+            for game in games:
+                try:
+                    engine = get_engine(game, db)
+                    if getattr(engine, "try_advance_switch_after_delay", None) and engine.try_advance_switch_after_delay():
+                        logger.info("ox switch advance game_id=%s", game.id)
+                except Exception as e:
+                    logger.warning("ox_switch_advance game_id=%s: %s", game.id, e)
+        finally:
+            db.close()
+    except Exception as e:
+        logger.exception("ox_switch_advance job failed: %s", e)
+
+
 def start_scheduler():
     scheduler.add_job(_run_expire_topics, "interval", minutes=10, id="agora_expire_topics")
     scheduler.add_job(_run_process_worldcup, "interval", minutes=5, id="agora_process_worldcup")
     scheduler.add_job(_run_update_temperature, "interval", hours=1, id="agora_update_temperature")
     scheduler.add_job(_run_check_inactive_agents, "interval", minutes=30, id="heartbeat_check_inactive")
     scheduler.add_job(_run_phase_timeout, "interval", seconds=10, id="game_phase_timeout")
+    scheduler.add_job(_run_ox_switch_advance, "interval", seconds=1, id="ox_switch_advance")
     scheduler.start()
     logger.info("agora scheduler started")
 

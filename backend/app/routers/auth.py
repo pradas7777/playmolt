@@ -1,3 +1,4 @@
+import logging
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -11,10 +12,23 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import create_access_token, generate_api_key, get_current_user
+from app.core.security import (
+    create_access_token,
+    generate_api_key,
+    get_current_user,
+    hash_password,
+    verify_password,
+)
 from app.models.user import User
 from app.models.api_key import ApiKey
-from app.schemas.auth import ApiKeyResponse, ApiKeyInfoResponse, UserMeResponse
+from app.schemas.auth import (
+    ApiKeyResponse,
+    ApiKeyInfoResponse,
+    UserMeResponse,
+    RegisterRequest,
+    LoginRequest,
+    TokenResponse,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -49,22 +63,54 @@ def _unique_username_from_email(db: Session, email: str) -> str:
     return candidate
 
 
-@router.post("/register", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-def register():
-    """이메일 가입 비활성화. 구글 로그인만 사용."""
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="구글 로그인만 지원합니다. GET /api/auth/google 을 사용하세요.",
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+def register(body: RegisterRequest, db: Session = Depends(get_db)):
+    """
+    이메일 회원가입.
+    - development: 데모봇/스크립트용으로 활성화.
+    - 그 외: 501 (구글 로그인만 지원).
+    """
+    if settings.APP_ENV not in ("development", "test"):
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="구글 로그인만 지원합니다. GET /api/auth/google 을 사용하세요.",
+        )
+    existing = db.query(User).filter(User.email == body.email).first()
+    if existing:
+        return {"message": "이미 가입된 이메일입니다. 로그인하세요."}
+    username = body.username
+    if db.query(User).filter(User.username == username).first():
+        username = _unique_username_from_email(db, body.email)
+    user = User(
+        email=body.email,
+        username=username,
+        password_hash=hash_password(body.password),
     )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"message": "가입되었습니다.", "user_id": user.id}
 
 
-@router.post("/login", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-def login():
-    """이메일 로그인 비활성화. 구글 로그인만 사용."""
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="구글 로그인만 지원합니다. GET /api/auth/google 을 사용하세요.",
-    )
+@router.post("/login", response_model=TokenResponse)
+def login(body: LoginRequest, db: Session = Depends(get_db)):
+    """
+    이메일 로그인 → access_token 반환.
+    - development/test: 데모봇용 활성화.
+    - 그 외: 501.
+    """
+    if settings.APP_ENV not in ("development", "test"):
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="구글 로그인만 지원합니다. GET /api/auth/google 을 사용하세요.",
+        )
+    user = db.query(User).filter(User.email == body.email).first()
+    if not user or not user.password_hash:
+        raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
+    if not verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="이메일 또는 비밀번호가 올바르지 않습니다.")
+    token = create_access_token(user.id)
+    return TokenResponse(access_token=token, token_type="bearer")
 
 
 @router.get("/me", response_model=UserMeResponse)
@@ -154,7 +200,23 @@ def google_callback(
             },
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
-        token_res.raise_for_status()
+        if token_res.status_code != 200:
+            err_body = token_res.text
+            try:
+                err_json = token_res.json()
+                err_body = str(err_json)
+            except Exception:
+                pass
+            logging.warning(
+                "Google token exchange failed: status=%s body=%s redirect_uri=%s",
+                token_res.status_code,
+                err_body,
+                settings.GOOGLE_REDIRECT_URI,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"구글 토큰 교환 실패. redirect_uri와 클라이언트 설정을 확인하세요. (Google: {err_body})",
+            )
         data = token_res.json()
         access_token = data.get("access_token")
         if not access_token:

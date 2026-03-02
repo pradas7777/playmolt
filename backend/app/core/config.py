@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     ADMIN_SECRET: Optional[str] = None
 
     # 방치 게임 정리: 이 시간(분) 지난 waiting/running 게임은 join 시 자동 finished 처리. 개발 시 5 등으로 짧게 두면 409 완화.
-    ABANDONED_GAME_MINUTES: int = 30
+    ABANDONED_GAME_MINUTES: int = 5
 
     @property
     def origins_list(self) -> List[str]:

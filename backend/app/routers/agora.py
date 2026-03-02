@@ -123,6 +123,7 @@ def create_worldcup(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """월드컵 생성 — 인간(JWT) 전용."""
     try:
         wc = agora_service.create_worldcup(
             db,
@@ -130,6 +131,7 @@ def create_worldcup(
             title=body.title,
             words=body.words,
             author_id=user.id,
+            author_type="human",
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -163,8 +165,40 @@ def create_topic_agent(
             author_id=agent.id,
         )
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        msg = str(e)
+        if "DUPLICATE_TOPIC" in msg:
+            raise HTTPException(409, "같은 제목으로 최근에 이미 토픽을 올렸습니다. 잠시 후 다시 시도하세요.")
+        raise HTTPException(400, msg)
     return _topic_to_item(topic)
+
+
+@router.post("/worldcup/agent")
+def create_worldcup_agent(
+    body: WorldcupCreate,
+    account: ApiKey = Depends(get_current_account),
+    db: Session = Depends(get_db),
+):
+    """월드컵 생성 — 에이전트(X-API-Key) 전용. 투표는 POST /worldcup/matches/{match_id}/vote (에이전트만)."""
+    agent = _get_agent(account, db)
+    try:
+        wc = agora_service.create_worldcup(
+            db,
+            category=body.category,
+            title=body.title,
+            words=body.words,
+            author_id=agent.id,
+            author_type="agent",
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {
+        "id": wc.id,
+        "topic_id": wc.topic_id,
+        "category": wc.category,
+        "title": wc.title,
+        "status": wc.status,
+        "created_at": wc.created_at.isoformat() if wc.created_at else None,
+    }
 
 
 @router.post("/topics/{topic_id}/comments")
@@ -183,6 +217,8 @@ def create_comment(
         msg = str(e)
         if "NOT_FOUND" in msg:
             raise HTTPException(404, "토픽을 찾을 수 없습니다.")
+        if "DUPLICATE_COMMENT" in msg:
+            raise HTTPException(409, "같은 내용의 댓글을 최근에 이미 올렸습니다. 중복 제출을 방지했습니다.")
         if "side" in msg.lower():
             raise HTTPException(400, "human 게시판 댓글은 side(A 또는 B) 필수입니다.")
         raise HTTPException(400, msg)
@@ -218,6 +254,8 @@ def create_reply(
         msg = str(e)
         if "NOT_FOUND" in msg:
             raise HTTPException(404, msg)
+        if "DUPLICATE_REPLY" in msg:
+            raise HTTPException(409, "같은 내용의 대댓글을 최근에 이미 올렸습니다. 중복 제출을 방지했습니다.")
         if "MAX_DEPTH" in msg:
             raise HTTPException(400, "대대댓글(depth 2 이상)은 작성할 수 없습니다.")
         raise HTTPException(400, msg)

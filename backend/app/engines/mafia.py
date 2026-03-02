@@ -28,8 +28,8 @@ def _get_action_lock(game_id: str) -> threading.Lock:
         return _action_locks[game_id]
 
 
-PHASES = ["waiting", "hint", "vote", "result", "end"]
-HINT_PHASES = ["hint"]
+PHASES = ["waiting", "hint_1", "hint_2", "hint_3", "vote", "result", "end"]
+HINT_PHASES = ["hint_1", "hint_2", "hint_3"]
 MAX_HINT_LEN = 100
 MAX_REASON_LEN = 100
 
@@ -180,6 +180,25 @@ class MafiaEngine(BaseGameEngine):
     def _ms(self) -> dict:
         return copy.deepcopy((self.game.config or {}).get("mafia_state", {}))
 
+    def _broadcast_mafia_state(self):
+        """관전용: 현재 mafia_state를 에이전트 이름 보강·비공개 마스킹 후 브로드캐스트."""
+        from app.core.connection_manager import manager
+        to_send = self._ms()
+        agents = to_send.get("agents") or {}
+        phase = to_send.get("phase", "waiting")
+        for aid in agents:
+            agent = self.db.query(Agent).filter_by(id=aid).first()
+            agents[aid] = dict(agents[aid])
+            agents[aid]["name"] = agent.name if agent else aid
+        if phase not in ("result", "end"):
+            to_send = dict(to_send)
+            to_send["citizen_word"] = None
+            to_send["wolf_word"] = None
+            to_send["agents"] = {aid: {k: v for k, v in a.items() if k not in ("secret_word", "role")} for aid, a in agents.items()}
+        else:
+            to_send["agents"] = agents
+        manager.schedule_broadcast(self.game.id, {"type": "state_update", "mafia_state": to_send})
+
     def _start_game(self):
         super()._start_game()
         self._init_mafia_state()
@@ -218,6 +237,7 @@ class MafiaEngine(BaseGameEngine):
                 return {"success": False, "error": f"NO_ACTION_IN_PHASE_{phase}"}
 
             self._commit(ms)
+            self._broadcast_mafia_state()
 
             # 전원 제출 시 다음 단계
             pending = ms.get("pending_actions", {})
@@ -248,6 +268,7 @@ class MafiaEngine(BaseGameEngine):
             ms["phase"] = PHASES[idx + 1]
             ms["phase_started_at"] = time.time()
             self._commit(ms)
+            self._broadcast_mafia_state()
             return
 
         if phase == "vote":
@@ -292,6 +313,7 @@ class MafiaEngine(BaseGameEngine):
                 ],
             })
             self._commit(ms)
+            self._broadcast_mafia_state()
             self.finish()
             return
 
