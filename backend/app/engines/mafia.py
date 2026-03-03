@@ -1,5 +1,5 @@
 """
-마피아(Word Wolf) 엔진. 6인, hint_1~3 → vote → result → end.
+마피아(Word Wolf) 엔진. 5인, hint → suspect → final → vote → revote(동점시) → result → end.
 """
 import copy
 import json
@@ -20,6 +20,8 @@ _logger = logging.getLogger(__name__)
 _action_locks: dict[str, threading.Lock] = {}
 _action_locks_mutex = threading.Lock()
 
+SUSPECT_REASON_CODES = ("AMBIGUOUS", "TOO_SPECIFIC", "OFF_TONE", "ETC")
+
 
 def _get_action_lock(game_id: str) -> threading.Lock:
     with _action_locks_mutex:
@@ -28,23 +30,22 @@ def _get_action_lock(game_id: str) -> threading.Lock:
         return _action_locks[game_id]
 
 
-PHASES = ["waiting", "hint_1", "hint_2", "hint_3", "vote", "result", "end"]
-HINT_PHASES = ["hint_1", "hint_2", "hint_3"]
+PHASES = ["waiting", "hint", "suspect", "final", "vote", "revote", "result", "end"]
+ACTION_PHASES = ["hint", "suspect", "final", "vote", "revote"]
 MAX_HINT_LEN = 100
-MAX_REASON_LEN = 100
+MAX_FINAL_MIN = 40
+MAX_FINAL_MAX = 140
 
 
 def _fix_word_encoding(s: str) -> str:
-    """DB에 깨져 저장된 한글 복구 시도 (여러 잘못된 해석 조합)."""
+    """DB에 깨져 저장된 한글 복구 시도."""
     if not s or not isinstance(s, str):
         return s or ""
-    # 이미 올바른 UTF-8이면 그대로 반환
     try:
         if "\ufffd" not in s and s.encode("utf-8").decode("utf-8") == s:
             return s
     except (UnicodeEncodeError, UnicodeDecodeError):
         pass
-    # UTF-8 바이트가 다른 인코딩으로 디코딩된 경우: s.encode(enc) -> 원래 바이트, .decode("utf-8") -> 복구
     for enc in ("latin-1", "cp1252", "cp949", "iso-8859-1", "euc-kr"):
         try:
             fixed = s.encode(enc).decode("utf-8")
@@ -52,7 +53,6 @@ def _fix_word_encoding(s: str) -> str:
                 return fixed
         except (UnicodeEncodeError, UnicodeDecodeError):
             continue
-    # 반대: UTF-8로 인코딩된 바이트를 잘못된 인코딩으로 디코딩한 경우 (일부 환경)
     try:
         b = s.encode("utf-8")
         fixed = b.decode("cp949")
@@ -64,7 +64,6 @@ def _fix_word_encoding(s: str) -> str:
 
 
 def _is_valid_utf8_word(w: str) -> bool:
-    """한글/영문 단어가 유효한 UTF-8인지 (깨짐 없음)."""
     if not w or "\ufffd" in w:
         return False
     try:
@@ -74,7 +73,6 @@ def _is_valid_utf8_word(w: str) -> bool:
         return False
 
 
-# 폴백 단어쌍: \u 이스케이프로 고정해 소스 파일이 CP949 등으로 저장돼도 한글이 깨지지 않도록 함
 _DEFAULT_WORD_PAIRS_JSON = (
     '[{"citizen_word":"\uc0ac\uacfc","wolf_word":"\ub0b4"},'
     '{"citizen_word":"\ud2f0\uc790","wolf_word":"\ud30c\uc2a4\ud0c0"}]'
@@ -98,23 +96,26 @@ def _load_word_pairs() -> list[dict]:
             break
     if not isinstance(data, list) or not data:
         return json.loads(_DEFAULT_WORD_PAIRS_JSON)
-    # 깨진 단어가 있으면 해당 항목 제외 또는 폴백 사용
     out = []
     for item in data:
         if not isinstance(item, dict):
             continue
-        cw = (item.get("citizen_word") or "").strip()
-        ww = (item.get("wolf_word") or "").strip()
+        cw = (item.get("common_word") or item.get("citizen_word") or "").strip()
+        ww = (item.get("odd_word") or item.get("wolf_word") or "").strip()
         if _is_valid_utf8_word(cw) and _is_valid_utf8_word(ww):
-            out.append({"citizen_word": cw, "wolf_word": ww})
+            out.append({"common_word": cw, "odd_word": ww})
     if not out:
+        fallback = json.loads(_DEFAULT_WORD_PAIRS_JSON)
+        for item in fallback:
+            cw = item.get("citizen_word", "")
+            ww = item.get("wolf_word", "")
+            out.append({"common_word": cw, "odd_word": ww})
         _logger.warning("word_pairs.json에 유효한 UTF-8 단어쌍 없음, 폴백 사용")
-        return json.loads(_DEFAULT_WORD_PAIRS_JSON)
     return out
 
 
 class MafiaEngine(BaseGameEngine):
-    MAX_AGENTS = 6
+    MAX_AGENTS = 5
 
     def __init__(self, game: Game, db: Session):
         super().__init__(game, db)
@@ -128,11 +129,13 @@ class MafiaEngine(BaseGameEngine):
             self.game.config = (self.game.config or {}) | {
                 "mafia_state": {
                     "phase": "waiting",
-                    "citizen_word": "",
-                    "wolf_word": "",
+                    "common_word": "",
+                    "odd_word": "",
                     "agents": {},
                     "pending_actions": {},
                     "history": [],
+                    "revote_round": 0,
+                    "revote_candidates": [],
                 }
             }
             flag_modified(self.game, "config")
@@ -141,13 +144,13 @@ class MafiaEngine(BaseGameEngine):
 
         pairs = _load_word_pairs()
         pair = random.choice(pairs)
-        citizen_word = (pair.get("citizen_word") or "").strip()
-        wolf_word = (pair.get("wolf_word") or "").strip()
-        if not _is_valid_utf8_word(citizen_word) or not _is_valid_utf8_word(wolf_word):
+        common_word = (pair.get("common_word") or "").strip()
+        odd_word = (pair.get("odd_word") or "").strip()
+        if not _is_valid_utf8_word(common_word) or not _is_valid_utf8_word(odd_word):
             fallback = json.loads(_DEFAULT_WORD_PAIRS_JSON)
             pair = fallback[0]
-            citizen_word = pair["citizen_word"]
-            wolf_word = pair["wolf_word"]
+            common_word = pair.get("citizen_word", pair.get("common_word", ""))
+            odd_word = pair.get("wolf_word", pair.get("odd_word", ""))
             _logger.warning("마피아 단어 검증 실패, 폴백 단어쌍 사용")
         agent_ids = [p.agent_id for p in participants]
         random.shuffle(agent_ids)
@@ -155,18 +158,20 @@ class MafiaEngine(BaseGameEngine):
         agents = {}
         for i, aid in enumerate(agent_ids):
             role = "WOLF" if i < wolf_count else "CITIZEN"
-            word = wolf_word if role == "WOLF" else citizen_word
+            word = odd_word if role == "WOLF" else common_word
             agents[aid] = {"role": role, "secret_word": word, "alive": True}
 
         self.game.config = (self.game.config or {}) | {
             "mafia_state": {
-                "phase": "hint_1",
+                "phase": "hint",
                 "phase_started_at": time.time(),
-                "citizen_word": citizen_word,
-                "wolf_word": wolf_word,
+                "common_word": common_word,
+                "odd_word": odd_word,
                 "agents": agents,
                 "pending_actions": {},
                 "history": [],
+                "revote_round": 0,
+                "revote_candidates": [],
             }
         }
         flag_modified(self.game, "config")
@@ -181,7 +186,6 @@ class MafiaEngine(BaseGameEngine):
         return copy.deepcopy((self.game.config or {}).get("mafia_state", {}))
 
     def _broadcast_mafia_state(self):
-        """관전용: 현재 mafia_state를 에이전트 이름 보강·비공개 마스킹 후 브로드캐스트."""
         from app.core.connection_manager import manager
         to_send = self._ms()
         agents = to_send.get("agents") or {}
@@ -192,11 +196,12 @@ class MafiaEngine(BaseGameEngine):
             agents[aid]["name"] = agent.name if agent else aid
         if phase not in ("result", "end"):
             to_send = dict(to_send)
-            to_send["citizen_word"] = None
-            to_send["wolf_word"] = None
+            to_send["common_word"] = None
+            to_send["odd_word"] = None
             to_send["agents"] = {aid: {k: v for k, v in a.items() if k not in ("secret_word", "role")} for aid, a in agents.items()}
         else:
             to_send["agents"] = agents
+        to_send["phase_timeout_seconds"] = self._phase_timeout_sec()
         manager.schedule_broadcast(self.game.id, {"type": "state_update", "mafia_state": to_send})
 
     def _start_game(self):
@@ -218,28 +223,49 @@ class MafiaEngine(BaseGameEngine):
             if agent.id in ms.get("pending_actions", {}):
                 return {"success": False, "error": "ALREADY_ACTED"}
 
-            if phase in HINT_PHASES:
+            if phase == "hint":
                 if action.get("type") != "hint":
                     return {"success": False, "error": "HINT_PHASE_REQUIRES_HINT"}
                 text = (action.get("text") or "").strip()[:MAX_HINT_LEN]
                 ms.setdefault("pending_actions", {})[agent.id] = {"type": "hint", "text": text}
-            elif phase == "vote":
+            elif phase == "suspect":
+                if action.get("type") != "suspect":
+                    return {"success": False, "error": "SUSPECT_PHASE_REQUIRES_SUSPECT"}
+                target_id = action.get("target_id")
+                if target_id == agent.id:
+                    return {"success": False, "error": "CANNOT_SUSPECT_SELF"}
+                if target_id not in agents:
+                    return {"success": False, "error": "INVALID_TARGET"}
+                reason_code = (action.get("reason_code") or "ETC").upper()
+                if reason_code not in SUSPECT_REASON_CODES:
+                    reason_code = "ETC"
+                ms.setdefault("pending_actions", {})[agent.id] = {"type": "suspect", "target_id": target_id, "reason_code": reason_code}
+            elif phase == "final":
+                if action.get("type") != "final":
+                    return {"success": False, "error": "FINAL_PHASE_REQUIRES_FINAL"}
+                text = (action.get("text") or "").strip()
+                if len(text) < MAX_FINAL_MIN or len(text) > MAX_FINAL_MAX:
+                    return {"success": False, "error": f"FINAL_TEXT_LENGTH_{MAX_FINAL_MIN}_TO_{MAX_FINAL_MAX}"}
+                ms.setdefault("pending_actions", {})[agent.id] = {"type": "final", "text": text}
+            elif phase in ("vote", "revote"):
                 if action.get("type") != "vote":
                     return {"success": False, "error": "VOTE_PHASE_REQUIRES_VOTE"}
                 target_id = action.get("target_id")
                 if target_id == agent.id:
                     return {"success": False, "error": "CANNOT_VOTE_SELF"}
-                if target_id not in agents:
+                if phase == "revote":
+                    candidates = ms.get("revote_candidates") or []
+                    if target_id not in candidates:
+                        return {"success": False, "error": "TARGET_MUST_BE_REVOTE_CANDIDATE"}
+                elif target_id not in agents:
                     return {"success": False, "error": "INVALID_TARGET"}
-                reason = (action.get("reason") or "").strip()[:MAX_REASON_LEN]
-                ms.setdefault("pending_actions", {})[agent.id] = {"type": "vote", "target_id": target_id, "reason": reason}
+                ms.setdefault("pending_actions", {})[agent.id] = {"type": "vote", "target_id": target_id}
             else:
                 return {"success": False, "error": f"NO_ACTION_IN_PHASE_{phase}"}
 
             self._commit(ms)
             self._broadcast_mafia_state()
 
-            # 전원 제출 시 다음 단계
             pending = ms.get("pending_actions", {})
             if len(pending) >= len(agents):
                 self._advance_phase()
@@ -253,8 +279,8 @@ class MafiaEngine(BaseGameEngine):
         agents = ms.get("agents", {})
         pending = ms.get("pending_actions", {})
 
-        if phase in HINT_PHASES:
-            history_entry = {"phase": phase, "hints": []}
+        if phase == "hint":
+            history_entry = {"phase": "hint", "hints": []}
             for aid, act in pending.items():
                 ag = self.db.query(Agent).filter_by(id=aid).first()
                 history_entry["hints"].append({
@@ -264,60 +290,124 @@ class MafiaEngine(BaseGameEngine):
                 })
             ms.setdefault("history", []).append(history_entry)
             ms["pending_actions"] = {}
-            idx = PHASES.index(phase)
-            ms["phase"] = PHASES[idx + 1]
+            ms["phase"] = "suspect"
             ms["phase_started_at"] = time.time()
             self._commit(ms)
             self._broadcast_mafia_state()
             return
 
-        if phase == "vote":
+        if phase == "suspect":
+            history_entry = {"phase": "suspect", "suspects": []}
+            for aid, act in pending.items():
+                ag = self.db.query(Agent).filter_by(id=aid).first()
+                target_ag = self.db.query(Agent).filter_by(id=act.get("target_id", "")).first()
+                history_entry["suspects"].append({
+                    "agent_id": aid,
+                    "name": ag.name if ag else aid,
+                    "target_id": act.get("target_id"),
+                    "target_name": target_ag.name if target_ag else act.get("target_id"),
+                    "reason_code": act.get("reason_code", "ETC"),
+                })
+            ms.setdefault("history", []).append(history_entry)
+            ms["pending_actions"] = {}
+            ms["phase"] = "final"
+            ms["phase_started_at"] = time.time()
+            self._commit(ms)
+            self._broadcast_mafia_state()
+            return
+
+        if phase == "final":
+            history_entry = {"phase": "final", "statements": []}
+            for aid, act in pending.items():
+                ag = self.db.query(Agent).filter_by(id=aid).first()
+                history_entry["statements"].append({
+                    "agent_id": aid,
+                    "name": ag.name if ag else aid,
+                    "text": act.get("text", ""),
+                })
+            ms.setdefault("history", []).append(history_entry)
+            ms["pending_actions"] = {}
+            ms["phase"] = "vote"
+            ms["phase_started_at"] = time.time()
+            self._commit(ms)
+            self._broadcast_mafia_state()
+            return
+
+        if phase in ("vote", "revote"):
             votes = [p.get("target_id") for p in pending.values() if p.get("type") == "vote" and p.get("target_id")]
             from collections import Counter
             count = Counter(votes)
+            vote_detail = [{"voter_id": aid, "target_id": p.get("target_id")} for aid, p in pending.items()]
+
             if not count:
                 eliminated_id = list(agents.keys())[0]
-            else:
-                max_votes = max(count.values())
-                candidates = [tid for tid, c in count.items() if c == max_votes]
-                eliminated_id = random.choice(candidates) if len(candidates) > 1 else candidates[0]
-            eliminated_role = agents.get(eliminated_id, {}).get("role", "CITIZEN")
-            winner = "CITIZEN" if eliminated_role == "WOLF" else "WOLF"
-            vote_detail = [
-                {"voter_id": aid, "target_id": p.get("target_id"), "reason": p.get("reason", "")}
-                for aid, p in pending.items()
-            ]
-            ms["phase"] = "result"
-            ms["eliminated_id"] = eliminated_id
-            ms["eliminated_role"] = eliminated_role
-            ms["winner"] = winner
-            ms["vote_detail"] = vote_detail
+                eliminated_role = agents.get(eliminated_id, {}).get("role", "CITIZEN")
+                winner = "CITIZEN" if eliminated_role == "WOLF" else "WOLF"
+                self._finish_vote(ms, vote_detail, eliminated_id, eliminated_role, winner)
+                return
+
+            max_votes = max(count.values())
+            candidates = [tid for tid, c in count.items() if c == max_votes]
+
+            if len(candidates) == 1:
+                eliminated_id = candidates[0]
+                eliminated_role = agents.get(eliminated_id, {}).get("role", "CITIZEN")
+                winner = "CITIZEN" if eliminated_role == "WOLF" else "WOLF"
+                self._finish_vote(ms, vote_detail, eliminated_id, eliminated_role, winner)
+                return
+
+            if phase == "revote":
+                eliminated_id = random.choice(candidates)
+                eliminated_role = agents.get(eliminated_id, {}).get("role", "CITIZEN")
+                winner = "CITIZEN" if eliminated_role == "WOLF" else "WOLF"
+                ms.setdefault("history", []).append({
+                    "phase": "tiebreak",
+                    "candidates": candidates,
+                    "eliminated_id": eliminated_id,
+                    "message": "Random eliminated",
+                })
+                self._finish_vote(ms, vote_detail, eliminated_id, eliminated_role, winner)
+                return
+
+            ms["phase"] = "revote"
+            ms["revote_round"] = 1
+            ms["revote_candidates"] = candidates
             ms["pending_actions"] = {}
-            # 리플레이용 로그: 투표 결과
             ms.setdefault("history", []).append({
-                "phase": "vote_result",
-                "vote_detail": vote_detail,
-                "eliminated_id": eliminated_id,
-                "eliminated_role": eliminated_role,
-                "winner": winner,
-                # 관전/리플레이용: 최종 시점에 전체 역할·단어 공개
-                "citizen_word": ms.get("citizen_word"),
-                "wolf_word": ms.get("wolf_word"),
-                "agents": [
-                    {
-                        "agent_id": aid,
-                        "role": info.get("role"),
-                        "secret_word": info.get("secret_word"),
-                    }
-                    for aid, info in agents.items()
-                ],
+                "phase": "revote_start",
+                "candidates": candidates,
             })
+            ms["phase_started_at"] = time.time()
             self._commit(ms)
             self._broadcast_mafia_state()
-            self.finish()
             return
 
         self._commit(ms)
+
+    def _finish_vote(self, ms: dict, vote_detail: list, eliminated_id: str, eliminated_role: str, winner: str):
+        ms["phase"] = "result"
+        ms["eliminated_id"] = eliminated_id
+        ms["eliminated_role"] = eliminated_role
+        ms["winner"] = winner
+        ms["vote_detail"] = vote_detail
+        ms["pending_actions"] = {}
+        ms["revote_candidates"] = []
+        ms.setdefault("history", []).append({
+            "phase": "vote_result",
+            "vote_detail": vote_detail,
+            "eliminated_id": eliminated_id,
+            "eliminated_role": eliminated_role,
+            "winner": winner,
+            "common_word": ms.get("common_word"),
+            "odd_word": ms.get("odd_word"),
+            "agents": [
+                {"agent_id": aid, "role": info.get("role"), "secret_word": info.get("secret_word")}
+                for aid, info in (ms.get("agents") or {}).items()
+            ],
+        })
+        self._commit(ms)
+        self._broadcast_mafia_state()
+        self.finish()
 
     def _phase_timeout_sec(self) -> int:
         return (self.game.config or {}).get("phase_timeout_seconds", 60)
@@ -327,12 +417,24 @@ class MafiaEngine(BaseGameEngine):
         ms = self._ms()
         phase = ms.get("phase", "waiting")
         agents = ms.get("agents", {})
-        if phase in HINT_PHASES:
+        others = [aid for aid in agents if aid != agent_id]
+        target_id = random.choice(others) if others else agent_id
+
+        if phase == "hint":
             return {"type": "hint", "text": "제 단어가 뭐였죠?"}
-        if phase == "vote":
-            others = [aid for aid in agents if aid != agent_id]
-            target_id = random.choice(others) if others else agent_id
-            return {"type": "vote", "target_id": target_id, "reason": "타임아웃"}
+        if phase == "suspect":
+            return {"type": "suspect", "target_id": target_id, "reason_code": "ETC"}
+        if phase == "final":
+            base = "저는 시민입니다. "
+            text = (base * 10)[:MAX_FINAL_MAX]
+            if len(text) < MAX_FINAL_MIN:
+                text = text.ljust(MAX_FINAL_MIN, ".")
+            return {"type": "final", "text": text}
+        if phase in ("vote", "revote"):
+            if phase == "revote":
+                candidates = ms.get("revote_candidates") or []
+                target_id = random.choice(candidates) if candidates else target_id
+            return {"type": "vote", "target_id": target_id}
         return {"type": "hint", "text": ""}
 
     def apply_phase_timeout(self) -> bool:
@@ -343,7 +445,7 @@ class MafiaEngine(BaseGameEngine):
             self.db.refresh(self.game)
             ms = self._ms()
             phase = ms.get("phase", "waiting")
-            if phase not in HINT_PHASES and phase != "vote":
+            if phase not in ACTION_PHASES:
                 return False
             agents = ms.get("agents", {})
             pending = ms.get("pending_actions", {})
@@ -377,9 +479,13 @@ class MafiaEngine(BaseGameEngine):
             participant_list.append({"id": p.agent_id, "name": a.name if a else p.agent_id, "submitted": submitted})
 
         allowed = []
-        if phase in HINT_PHASES:
+        if phase == "hint":
             allowed = ["hint"]
-        elif phase == "vote":
+        elif phase == "suspect":
+            allowed = ["suspect"]
+        elif phase == "final":
+            allowed = ["final"]
+        elif phase in ("vote", "revote"):
             allowed = ["vote"]
 
         pending = ms.get("pending_actions", {})
@@ -388,21 +494,19 @@ class MafiaEngine(BaseGameEngine):
         self_submitted = agent.id in pending
 
         secret_word = _fix_word_encoding(ag.get("secret_word", "") or "")
-        # 플레이 중에는 자신의 팀(시민/늑대)을 알 수 없도록 숨기고,
-        # 게임이 끝난 뒤(result/end) 상태에서만 실제 역할을 공개한다.
         if phase in ("result", "end"):
             visible_role = ag.get("role", "CITIZEN")
         else:
             visible_role = "UNKNOWN"
+
+        round_map = {"hint": 1, "suspect": 2, "final": 3, "vote": 4, "revote": 4, "result": 5, "end": 5}
+        round_num = round_map.get(phase, 1)
+
         return {
             "gameStatus": self.game.status.value,
             "gameType": "mafia",
             "phase": phase,
-            "round": (
-                1 if phase in HINT_PHASES
-                else 2 if phase == "vote"
-                else 3
-            ),
+            "round": round_num,
             "self": {
                 "id": agent.id,
                 "name": agent.name,
@@ -414,7 +518,8 @@ class MafiaEngine(BaseGameEngine):
             "allowed_actions": allowed,
             "phase_submissions": {"submitted": submitted, "total": total},
             "self_submitted": self_submitted,
-            "result": self._get_result(agent.id, ms) if phase == "result" or phase == "end" else None,
+            "revote_candidates": ms.get("revote_candidates", []),
+            "result": self._get_result(agent.id, ms) if phase in ("result", "end") else None,
         }
 
     def _get_result(self, agent_id: str, ms: dict) -> dict | None:
@@ -433,8 +538,8 @@ class MafiaEngine(BaseGameEngine):
             "points": pts,
             "winner": winner,
             "eliminated_role": ms.get("eliminated_role"),
-            "citizen_word": _fix_word_encoding(ms.get("citizen_word") or ""),
-            "wolf_word": _fix_word_encoding(ms.get("wolf_word") or ""),
+            "citizen_word": _fix_word_encoding(ms.get("common_word") or ms.get("citizen_word") or ""),
+            "wolf_word": _fix_word_encoding(ms.get("odd_word") or ms.get("wolf_word") or ""),
         }
 
     def check_game_end(self) -> bool:

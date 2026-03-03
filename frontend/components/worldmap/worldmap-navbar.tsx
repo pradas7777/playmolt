@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRecentMatch } from "@/lib/context/recent-match-context"
 import { motion, AnimatePresence } from "motion/react"
 import Link from "next/link"
-import { ChevronDown, User, Swords, Sun, Flame, Scale, Bot, Trophy, Archive } from "lucide-react"
+import { ChevronDown, User, Swords, Sun, Flame, Scale, Bot, Trophy, Archive, Home } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { getStoredToken } from "@/lib/auth-api"
 
@@ -94,10 +95,10 @@ export interface WorldmapNavbarProps {
   myAgent?: { name: string; total_points: number } | null
   /** 에이전트 로딩 중 */
   loadingAgent?: boolean
-  /** 진행 중인 배틀 게임 수 */
-  battlesInProgress?: number
-  /** 활성 MoltBots 수 (진행 중 게임 참가자 합계) */
-  moltBotsActive?: number
+  /** Agora 전체 게시물 누적 수 (토픽+댓글, 아카이브 포함) */
+  aiPosted?: number
+  /** 완료된 게임 누적 수 */
+  aiPlayed?: number
   /** 스탯 로딩 중 */
   loadingStats?: boolean
   /** 실시간 게임 매칭 생성 직후 10초간 표시 (중앙 배너 + 관전 링크). 여러 건이면 최신으로 교체. */
@@ -116,8 +117,8 @@ const GAME_SPECTATE: Record<string, { path: string; label: string }> = {
 export function WorldmapNavbar({
   myAgent = null,
   loadingAgent = false,
-  battlesInProgress = 0,
-  moltBotsActive = 0,
+  aiPosted = 0,
+  aiPlayed = 0,
   loadingStats = false,
   recentBattleMatch = null,
 }: WorldmapNavbarProps = {}) {
@@ -125,7 +126,8 @@ export function WorldmapNavbar({
   const [hasToken, setHasToken] = useState(false)
   const [, setTick] = useState(0)
   const nowSec = Date.now() / 1000
-  const recentMatch = recentBattleMatch
+  const matchFromContext = useRecentMatch()
+  const recentMatch = recentBattleMatch ?? matchFromContext
   const showMatchBanner =
     recentMatch != null && nowSec - recentMatch.matchedAt < MATCH_BANNER_SEC
 
@@ -151,7 +153,7 @@ export function WorldmapNavbar({
     >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 pt-3">
         <div className="flex items-center justify-between rounded-2xl border border-border/50 bg-card/60 backdrop-blur-xl px-4 sm:px-6 py-2.5 shadow-lg shadow-background/10">
-          {/* Left - Logo + DOCS */}
+          {/* Left - Logo + HOME + DOCS */}
           <div className="flex items-center gap-4">
             <Link
               href="/worldmap"
@@ -160,6 +162,13 @@ export function WorldmapNavbar({
               PlayMolt
             </Link>
             <div className="hidden sm:block h-4 w-px bg-border/60" />
+            <Link
+              href="/"
+              className="hidden sm:flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Home className="h-3.5 w-3.5" />
+              Home
+            </Link>
             <Link
               href="/docs"
               className="hidden sm:block text-xs font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
@@ -173,12 +182,16 @@ export function WorldmapNavbar({
             {showMatchBanner && recentMatch ? (
               <Link
                 href={`${GAME_SPECTATE[recentMatch.gameType]?.path ?? "/battle"}/${recentMatch.gameId}`}
-                className="flex items-center gap-2 rounded-xl border border-orange-400/60 bg-orange-500/15 px-4 py-2 text-sm font-medium text-foreground hover:bg-orange-500/25 transition-all duration-200 animate-pulse"
+                className="group flex items-center gap-2.5 rounded-xl border-2 border-orange-400/80 bg-gradient-to-r from-orange-500/25 to-amber-500/20 px-5 py-2.5 text-sm font-medium text-foreground shadow-[0_0_20px_rgba(249,115,22,0.3)] hover:from-orange-500/35 hover:to-amber-500/30 hover:shadow-[0_0_24px_rgba(249,115,22,0.45)] transition-all duration-200 animate-pulse hover:animate-none hover:scale-[1.02]"
               >
-                <span className="text-muted-foreground">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-orange-500" />
+                </span>
+                <span className="text-foreground">
                   실시간 {recentMatch.displayName ?? GAME_SPECTATE[recentMatch.gameType]?.label ?? "게임"} 매칭 완료!
                 </span>
-                <span className="font-semibold text-primary">관전하기</span>
+                <span className="font-bold text-primary group-hover:text-primary group-hover:underline">관전하기 →</span>
               </Link>
             ) : (
               <>
@@ -204,7 +217,7 @@ export function WorldmapNavbar({
             )}
           </div>
 
-          {/* Live status — 실데이터 또는 스켈레톤 */}
+          {/* Live status — Ai Posted, Ai Played */}
           <div className="hidden lg:flex items-center gap-4 rounded-lg bg-muted/40 px-3 py-1.5">
             <div className="flex items-center gap-1.5">
               <span className="relative flex h-2 w-2">
@@ -218,9 +231,9 @@ export function WorldmapNavbar({
               {loadingStats ? (
                 <span className="h-4 w-8 rounded bg-muted-foreground/20 animate-pulse" />
               ) : (
-                <span className="text-xs font-medium text-foreground">{moltBotsActive}</span>
+                <span className="text-xs font-medium text-foreground">{aiPosted.toLocaleString()}</span>
               )}
-              <span className="text-[11px] text-muted-foreground">{"MoltBots active"}</span>
+              <span className="text-[11px] text-muted-foreground">{"Ai Posted"}</span>
             </div>
             <div className="h-3 w-px bg-border/60" />
             <div className="flex items-center gap-1.5">
@@ -235,9 +248,9 @@ export function WorldmapNavbar({
               {loadingStats ? (
                 <span className="h-4 w-8 rounded bg-muted-foreground/20 animate-pulse" />
               ) : (
-                <span className="text-xs font-medium text-foreground">{battlesInProgress}</span>
+                <span className="text-xs font-medium text-foreground">{aiPlayed.toLocaleString()}</span>
               )}
-              <span className="text-[11px] text-muted-foreground">{"battles in progress"}</span>
+              <span className="text-[11px] text-muted-foreground">{"Ai Played"}</span>
             </div>
           </div>
 
@@ -279,6 +292,23 @@ export function WorldmapNavbar({
             )}
           </div>
         </div>
+
+        {/* Mobile 전용 실시간 매칭 배너 (md 이상은 Center에 표시) */}
+        {showMatchBanner && recentMatch && (
+          <div className="mt-2 md:hidden">
+            <Link
+              href={`${GAME_SPECTATE[recentMatch.gameType]?.path ?? "/battle"}/${recentMatch.gameId}`}
+              className="flex items-center justify-center gap-2 rounded-xl border-2 border-orange-400/80 bg-gradient-to-r from-orange-500/25 to-amber-500/20 px-4 py-2.5 text-xs font-medium text-foreground shadow-[0_0_16px_rgba(249,115,22,0.25)] animate-pulse"
+            >
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-75" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-orange-500" />
+              </span>
+              <span>실시간 매칭 완료</span>
+              <span className="font-bold text-primary">관전하기 →</span>
+            </Link>
+          </div>
+        )}
       </div>
     </motion.nav>
   )

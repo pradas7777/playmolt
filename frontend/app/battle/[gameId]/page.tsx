@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { motion, AnimatePresence } from "motion/react"
 import Image from "next/image"
 
-import { WorldmapNavbar } from "@/components/worldmap/worldmap-navbar"
+import { GameBackToWorldmap } from "@/components/game/game-back-to-worldmap"
 import { AgentCard, type AgentCardHandle } from "@/components/agent-card/agent-card"
 import { GasWarningBar } from "@/components/battle/gas-warning-bar"
 import { GameInfoPanel } from "@/components/battle/game-info-panel"
@@ -16,7 +16,7 @@ import { BattleTerminalLog, type BattleLogEntry } from "@/components/battle/batt
 import { RoundTimeline } from "@/components/battle/round-timeline"
 import { AgoraTop3 } from "@/components/worldmap/agora-top3"
 
-import { getSpectatorState, getGameLogs } from "@/lib/api/games"
+import { getSpectatorState, getGameLogs, type SpectatorStateResponse } from "@/lib/api/games"
 import { GameWebSocket } from "@/lib/api/websocket"
 import {
   mapBattleStateToUI,
@@ -30,9 +30,12 @@ import { handleBattleEvent } from "@/lib/game/battleEventHandler"
 import { battleStateToEvents, gameEndToEvent, historyToEvents, buildInitialStateFromReplay } from "@/lib/game/wsToEvents"
 import { ReplayMode } from "@/components/game/ReplayMode"
 import { GameStartCountdown } from "@/components/game/GameStartCountdown"
+import { WaitingAgentsPanel } from "@/components/game/waiting-agents-panel"
 
 const CARD_FRAME = "/images/cards/battle_game_card.png"
 const GAS_START = 8
+/** backend battle.COLLECT_TIMEOUT_SEC와 동일. collect 단계(에이전트 생각중) 타임아웃 */
+const COLLECT_TIMEOUT_SEC = 45
 
 /** 고정된 표시 순서로 에이전트 정렬 (위치 변경 없이 isActive만 바뀌도록) */
 function sortAgentsByStableOrder(
@@ -93,6 +96,8 @@ export default function BattleArenaSpectatorPage() {
   const [roundTransitionRound, setRoundTransitionRound] = useState<number | null>(null)
   /** 매칭 시각(Unix 초). 10초 카운트다운 패널용 */
   const [matchedAt, setMatchedAt] = useState<number | null>(null)
+  const [waitingAgents, setWaitingAgents] = useState<{ id: string; name: string }[]>([])
+  const [gameStatus, setGameStatus] = useState<string>("waiting")
 
   const cardRefs = useRef<(AgentCardHandle | null)[]>([])
   const wsRef = useRef<GameWebSocket | null>(null)
@@ -250,6 +255,8 @@ export default function BattleArenaSpectatorPage() {
       .then((data) => {
         if (cancelled) return
         if (data.matched_at != null) setMatchedAt(data.matched_at)
+        setWaitingAgents((data as SpectatorStateResponse).waiting_agents ?? [])
+        setGameStatus(data.status)
         if (data.status === "finished") {
           setGameFinished(true)
           setGameOver(true)
@@ -403,15 +410,14 @@ export default function BattleArenaSpectatorPage() {
     setGameFinished(true)
   }, [gameOver])
 
-  // 턴 남은 시간 카운트다운 (collect 단계, 1초 간격)
+  // 턴 남은 시간 카운트다운 (collect 단계 = 에이전트 생각중, 1초 간격). 매 라운드 collect_entered_at으로 초기화
   useEffect(() => {
     if (phase !== "COLLECT" || collectEnteredAt == null) {
       setTurnRemainingSec(null)
       return
     }
-    const TURN_SEC = 20
     const tick = () => {
-      const remaining = Math.max(0, Math.ceil(collectEnteredAt + TURN_SEC - Date.now() / 1000))
+      const remaining = Math.max(0, Math.ceil(collectEnteredAt + COLLECT_TIMEOUT_SEC - Date.now() / 1000))
       setTurnRemainingSec(remaining)
     }
     tick()
@@ -437,7 +443,7 @@ export default function BattleArenaSpectatorPage() {
   if (loading || notFound) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <WorldmapNavbar />
+        <GameBackToWorldmap />
         <p className="font-mono text-muted-foreground">
           {loading ? "Loading..." : "Redirecting..."}
         </p>
@@ -447,7 +453,7 @@ export default function BattleArenaSpectatorPage() {
 
   return (
     <div className="relative min-h-screen bg-background">
-      <WorldmapNavbar />
+      <GameBackToWorldmap />
 
       {/* Reconnecting banner */}
       <AnimatePresence>
@@ -464,10 +470,16 @@ export default function BattleArenaSpectatorPage() {
       </AnimatePresence>
 
       <section
-        className="relative w-full overflow-hidden pt-[72px]"
-        style={{ height: "100vh" }}
+        className="relative w-full overflow-hidden pt-12"
+        style={{ height: "100dvh", minHeight: "100svh" }}
       >
-        <GameStartCountdown matchedAt={matchedAt} />
+        {matchedAt == null && (
+          <WaitingAgentsPanel
+            agents={waitingAgents}
+            visible={gameStatus === "waiting" && waitingAgents.length > 0}
+          />
+        )}
+        <GameStartCountdown matchedAt={matchedAt} waitingAgents={waitingAgents} />
         <motion.div
           animate={{ scale: [1, 1.05, 1] }}
           transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
@@ -583,12 +595,12 @@ export default function BattleArenaSpectatorPage() {
                   )
                 })}
               </div>
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none">
+              <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none ${isReplayMode ? "top-[35%] -translate-y-1/2" : ""}`}>
                 <RoundLogPanel events={roundEvents} currentRound={round} />
               </div>
             </div>
           </div>
-          <div className="h-24 bg-gradient-to-t from-background to-transparent pointer-events-none" />
+          <div className="h-8 sm:h-10 flex-shrink-0 shrink-0 bg-gradient-to-t from-background to-transparent pointer-events-none" />
         </div>
 
         {isReplayMode && (

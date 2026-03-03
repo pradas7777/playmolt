@@ -27,8 +27,7 @@ export function ReplayMode({
 
   return (
     <div
-      className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 rounded-xl border border-white/20 bg-black/70 backdrop-blur-md px-4 py-3 shadow-xl"
-      style={{ marginBottom: "6rem" }}
+      className="absolute bottom-4 left-4 sm:left-6 z-50 flex flex-col gap-2 rounded-xl border border-white/20 bg-black/70 backdrop-blur-md px-4 py-3 shadow-xl"
     >
       <div className="flex items-center gap-3">
         <button

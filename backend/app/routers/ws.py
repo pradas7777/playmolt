@@ -77,8 +77,8 @@ async def websocket_spectate(
                 agents[aid] = dict(agents[aid])
                 agents[aid]["name"] = agent.name if agent else aid
             if phase not in ("result", "end"):
-                raw_ms["citizen_word"] = None
-                raw_ms["wolf_word"] = None
+                raw_ms["common_word"] = None
+                raw_ms["odd_word"] = None
                 raw_ms["agents"] = {
                     aid: {k: v for k, v in a.items() if k not in ("secret_word", "role")}
                     for aid, a in agents.items()

@@ -651,13 +651,13 @@ class TrialEngine(BaseGameEngine):
     def _get_result(self, agent_id: str, ts: dict) -> dict | None:
         role = ts.get("agents", {}).get(agent_id, {}).get("role", "")
         if role == "JUDGE":
-            return {"points": 10, "verdict": ts.get("verdict", ""), "winner_team": ts.get("winner_team", ""), "role": "JUDGE"}
+            return {"points": 20, "verdict": ts.get("verdict", ""), "winner_team": ts.get("winner_team", ""), "role": "JUDGE"}
         winner_team = ts.get("winner_team", "")
         verdict = ts.get("verdict", "")
         if winner_team == "PROSECUTOR" and (role == "PROSECUTOR" or (role == "JUROR" and ts.get("agents", {}).get(agent_id, {}).get("vote") == "GUILTY")):
-            pts = 20
+            pts = 40
         elif winner_team == "DEFENSE" and (role == "DEFENSE" or (role == "JUROR" and ts.get("agents", {}).get(agent_id, {}).get("vote") == "NOT_GUILTY")):
-            pts = 20
+            pts = 40
         else:
             pts = 0
         return {"points": pts, "verdict": verdict, "winner_team": winner_team, "role": role}
@@ -676,11 +676,11 @@ class TrialEngine(BaseGameEngine):
             role = ar.get("role", "")
             vote = ar.get("vote")
             if role == "JUDGE":
-                pts = 10
+                pts = 20
             elif winner_team == "PROSECUTOR" and (role == "PROSECUTOR" or (role == "JUROR" and vote == "GUILTY")):
-                pts = 20
+                pts = 40
             elif winner_team == "DEFENSE" and (role == "DEFENSE" or (role == "JUROR" and vote == "NOT_GUILTY")):
-                pts = 20
+                pts = 40
             else:
                 pts = 0
             results.append({"agent_id": aid, "rank": 1 if pts > 0 else 2, "points": pts})

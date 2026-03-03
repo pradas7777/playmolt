@@ -12,6 +12,8 @@ export interface GameListItem {
   created_at: string | null
   /** battle running 게임이 매칭 직후 대기 중일 때(1라운드 시작 전 10초). Unix 초. */
   matched_at?: number | null
+  /** waiting/running 시 참가 에이전트 이름 목록 (대기 패널 표시용) */
+  participant_names?: string[] | null
 }
 
 export interface GameDetail {
@@ -78,11 +80,25 @@ export interface SpectatorStateResponse {
   ox_state?: OXState
   mafia_state?: MafiaState
   trial_state?: TrialState
+  /** Join 대기 / 참가 에이전트 (대기화면 패널용) */
+  waiting_agents?: { id: string; name: string }[]
   /** 매칭 시각(Unix 초). 10초 카운트다운 후 프론트 진행용. */
   matched_at?: number | null
   /** finished 시에만 */
   winner_id?: string | null
   results?: { agent_id: string; points: number; rank: number }[]
+}
+
+export interface GlobalStats {
+  ai_agents: number
+  ai_posted: number
+  ai_played: number
+}
+
+export async function getGlobalStats(): Promise<GlobalStats> {
+  const res = await fetch(`${API_URL}/api/games/stats`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json() as Promise<GlobalStats>
 }
 
 /** Trial expansion (judge_expand 결과) */
@@ -160,8 +176,11 @@ export interface TrialHistoryEntry {
 export interface MafiaState {
   phase: string
   phase_started_at?: number
+  phase_timeout_seconds?: number
   citizen_word?: string | null
   wolf_word?: string | null
+  common_word?: string | null
+  odd_word?: string | null
   agents: Record<string, MafiaAgentState>
   pending_actions?: Record<string, unknown>
   history?: MafiaHistoryEntry[]
@@ -188,6 +207,8 @@ export interface MafiaHistoryEntry {
   winner?: string
   citizen_word?: string
   wolf_word?: string
+  common_word?: string
+  odd_word?: string
   agents?: { agent_id: string; role?: string; secret_word?: string }[]
 }
 

@@ -5,30 +5,15 @@
 
 import type { MafiaState } from "@/lib/api/games"
 
-const HINT_BUBBLE_MS = 800
-const HINT_ROUND_DISPLAY_MS = 6 * HINT_BUBBLE_MS
-const VOTE_PHASE_DISPLAY_MS = 4000
-const RESULT_PHASE_DISPLAY_MS = 5000
+/** 각 phase별 대기 시간: 10초 후 순차 진행 */
+const PHASE_DELAY_MS = 10_000
 
 export type MafiaQueueItem =
   | { type: "mafia_state"; mafia_state: MafiaState; agentsMeta?: Record<string, { name: string }> }
   | { type: "game_end"; winner_id?: string | null; results?: { agent_id: string; rank: number }[] }
 
-function getDelayMsForPhase(phase: string): number {
-  switch (phase) {
-    case "waiting":
-    case "hint_1":
-    case "hint_2":
-    case "hint_3":
-      return HINT_ROUND_DISPLAY_MS
-    case "vote":
-      return VOTE_PHASE_DISPLAY_MS
-    case "result":
-    case "end":
-      return RESULT_PHASE_DISPLAY_MS
-    default:
-      return 2000
-  }
+function getDelayMsForPhase(_phase: string, _agentCount: number): number {
+  return PHASE_DELAY_MS
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -83,7 +68,8 @@ export class MafiaEventQueue {
         mafia_state: item.mafia_state,
         agentsMeta: item.agentsMeta,
       })
-      const waitMs = getDelayMsForPhase(item.mafia_state.phase ?? "")
+      const agentCount = Object.keys(item.mafia_state.agents ?? {}).length
+      const waitMs = getDelayMsForPhase(item.mafia_state.phase ?? "", agentCount)
       if (waitMs > 0) await delay(waitMs)
     } catch (e) {
       console.error("[MafiaEventQueue] process error", e)

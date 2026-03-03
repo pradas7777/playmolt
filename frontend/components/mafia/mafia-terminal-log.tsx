@@ -40,7 +40,8 @@ const typePrefix: Record<string, string> = {
   INFO: "i",
 }
 
-export function MafiaTerminalLog({ logs }: { logs: MafiaLogEntry[] }) {
+export function MafiaTerminalLog({ logs, visibleCount }: { logs: MafiaLogEntry[]; visibleCount?: number }) {
+  const displayLogs = visibleCount != null ? logs.slice(0, visibleCount) : logs
   const scrollRef = useRef<HTMLDivElement>(null)
   const [paused, setPaused] = useState(false)
 
@@ -48,7 +49,7 @@ export function MafiaTerminalLog({ logs }: { logs: MafiaLogEntry[] }) {
     if (scrollRef.current && !paused) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [logs, paused])
+  }, [displayLogs, paused])
 
   let lastRound = -1
 
@@ -91,7 +92,7 @@ export function MafiaTerminalLog({ logs }: { logs: MafiaLogEntry[] }) {
                 className="h-[360px] sm:h-[420px] overflow-y-auto p-4 sm:p-6 font-mono text-xs sm:text-sm scrollbar-hide"
               >
                 <div className="flex flex-col gap-1">
-                  {logs.map((entry, i) => {
+                  {displayLogs.map((entry, i) => {
                     const showDivider = entry.round !== lastRound
                     lastRound = entry.round
                     return (

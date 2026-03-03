@@ -355,6 +355,22 @@ export async function getMyMentions(
 
 // ---------- 월드컵 ----------
 
+export interface ActiveWorldcupItem {
+  id: string
+  title: string
+  category: string
+  status: string
+  current_round: string
+  time_remaining_seconds: number | null
+  closes_at: string | null
+}
+
+export async function getActiveWorldcups(): Promise<{ items: ActiveWorldcupItem[] }> {
+  const res = await fetch(`${AGORA_PREFIX}/worldcup/active`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
 export interface AgoraWorldcupBracketMatch {
   match_id: string
   round: number

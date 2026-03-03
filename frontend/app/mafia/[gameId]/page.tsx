@@ -5,13 +5,14 @@ import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { motion, AnimatePresence } from "motion/react"
 import Image from "next/image"
 
-import { WorldmapNavbar } from "@/components/worldmap/worldmap-navbar"
+import { GameBackToWorldmap } from "@/components/game/game-back-to-worldmap"
 import { MafiaRoundInfo, type MafiaPhase } from "@/components/mafia/mafia-round-info"
 import { MafiaCardGrid } from "@/components/mafia/mafia-card-grid"
 import { VotePanel, type VoteTally } from "@/components/mafia/vote-panel"
 import { RevealSequence } from "@/components/mafia/reveal-sequence"
 import { MafiaTerminalLog, type MafiaLogEntry } from "@/components/mafia/mafia-terminal-log"
 import { GameStartCountdown } from "@/components/game/GameStartCountdown"
+import { WaitingAgentsPanel } from "@/components/game/waiting-agents-panel"
 
 import { getSpectatorState, getGameLogs, type MafiaState, type SpectatorStateResponse } from "@/lib/api/games"
 import { GameWebSocket } from "@/lib/api/websocket"
@@ -54,14 +55,16 @@ export default function MafiaSpectatorPage() {
   const [voteDetail, setVoteDetail] = useState<{ voter_id: string; target_id: string; reason?: string }[]>([])
   const [voteDisplayPhase, setVoteDisplayPhase] = useState<"arrows" | "result">("result")
   const [matchedAt, setMatchedAt] = useState<number | null>(null)
+  const [waitingAgents, setWaitingAgents] = useState<{ id: string; name: string }[]>([])
+  const [gameStatus, setGameStatus] = useState<string>("waiting")
   const [visibleBubbles, setVisibleBubbles] = useState<Record<string, string>>({})
   const [speakingAgentId, setSpeakingAgentId] = useState<string | null>(null)
+  const [visibleLogCount, setVisibleLogCount] = useState(0)
+  const [hintRoundsInHistory, setHintRoundsInHistory] = useState(0)
+  const [phaseStartedAt, setPhaseStartedAt] = useState<number | null>(null)
+  const [phaseTimeoutSeconds, setPhaseTimeoutSeconds] = useState(60)
 
   const wsRef = useRef<GameWebSocket | null>(null)
-  const matchedAtRef = useRef<number | null>(null)
-  const bufferedInitialRef = useRef<{ ms: MafiaState; meta: Record<string, { name: string }> } | null>(null)
-  const bufferedUpdatesRef = useRef<MafiaState[]>([])
-  const countdownFlushScheduledRef = useRef(false)
   const mafiaQueueRef = useRef<MafiaEventQueue | null>(null)
   const applyMafiaStateRef = useRef<(ms: MafiaState | undefined, agentsMeta?: Record<string, { name: string }>) => void>(() => {})
   const lastPlayedHintRef = useRef<string>("")
@@ -73,11 +76,18 @@ export default function MafiaSpectatorPage() {
     setRound(ui.round)
     setPhase(ui.phase)
     setAgents(ui.agents)
+    setPhaseStartedAt(ui.phaseStartedAt)
+    setPhaseTimeoutSeconds(ui.phaseTimeoutSeconds)
     setCitizenWord(ui.citizenWord)
     setWolfWord(ui.wolfWord)
     setVoteDetail(ui.voteDetail ?? [])
     if (ms.history?.length && agentsMeta) {
-      setLogs(mapMafiaHistoryToLogs(ms.history, agentsMeta))
+      const agentIds = ui.agents.map((a) => a.id)
+      setLogs(mapMafiaHistoryToLogs(ms.history, agentsMeta, agentIds.length ? agentIds : undefined))
+      const hintCount = ms.history.filter((h) => h.phase === "hint" || h.phase?.startsWith("hint_")).length
+      setHintRoundsInHistory(hintCount)
+    } else {
+      setHintRoundsInHistory(0)
     }
     if (ui.phase === "REVEAL" && ui.eliminatedId) {
       setEliminatedId(ui.eliminatedId)
@@ -151,8 +161,11 @@ export default function MafiaSpectatorPage() {
           return
         }
         if (data.matched_at != null) setMatchedAt(data.matched_at)
+        setWaitingAgents(data.waiting_agents ?? [])
+        setGameStatus(data.status)
         setGameFinished(data.status === "finished")
-        if (data.mafia_state) {
+        const skipInitialApply = data.status === "finished" && !!searchParams.get("replay")
+        if (data.mafia_state && !skipInitialApply) {
           const meta: Record<string, { name: string }> = {}
           for (const [id, a] of Object.entries(data.mafia_state.agents ?? {})) {
             meta[id] = { name: (a as { name?: string }).name ?? id }
@@ -162,7 +175,7 @@ export default function MafiaSpectatorPage() {
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false))
-  }, [gameId, applyMafiaState])
+  }, [gameId, applyMafiaState, searchParams])
 
   useEffect(() => {
     if (!isReplayMode || !replaySteps.length) return
@@ -176,37 +189,7 @@ export default function MafiaSpectatorPage() {
     handleStartReplay()
   }, [gameId, gameFinished, loading, searchParams, handleStartReplay])
 
-  matchedAtRef.current = matchedAt
-
-  useEffect(() => {
-    if (matchedAt == null || countdownFlushScheduledRef.current) return
-    const nowSec = Date.now() / 1000
-    const delayMs = (matchedAt + 10 - nowSec) * 1000
-    if (delayMs <= 0) {
-      const init = bufferedInitialRef.current
-      const updates = bufferedUpdatesRef.current
-      bufferedInitialRef.current = null
-      bufferedUpdatesRef.current = []
-      const q = mafiaQueueRef.current
-      if (init) q?.enqueue({ type: "mafia_state", mafia_state: init.ms, agentsMeta: init.meta })
-      updates.forEach((ms) => q?.enqueue({ type: "mafia_state", mafia_state: ms }))
-      countdownFlushScheduledRef.current = true
-      return
-    }
-    countdownFlushScheduledRef.current = true
-    const t = setTimeout(() => {
-      const init = bufferedInitialRef.current
-      const updates = bufferedUpdatesRef.current
-      bufferedInitialRef.current = null
-      bufferedUpdatesRef.current = []
-      const q = mafiaQueueRef.current
-      if (init) q?.enqueue({ type: "mafia_state", mafia_state: init.ms, agentsMeta: init.meta })
-      updates.forEach((ms) => q?.enqueue({ type: "mafia_state", mafia_state: ms }))
-    }, delayMs)
-    return () => clearTimeout(t)
-  }, [matchedAt])
-
-  const hintPhases: MafiaPhase[] = ["HINT_ROUND_1", "HINT_ROUND_2", "HINT_ROUND_3"]
+  const hintPhases: MafiaPhase[] = ["HINT", "SUSPECT"]
 
   useEffect(() => {
     if (phase === "REVEAL" && voteDetail.length > 0) setVoteDisplayPhase("arrows")
@@ -233,22 +216,31 @@ export default function MafiaSpectatorPage() {
     setVisibleBubbles({})
     setSpeakingAgentId(null)
     lastPlayedHintRef.current = ""
-  }, [phase])
+    if (!hintPhases.includes(phase)) {
+      setVisibleLogCount((c) => Math.max(c, logs.length))
+    }
+  }, [phase, logs.length])
 
   useEffect(() => {
     if (!hintPhases.includes(phase) || agents.length === 0) return
-    if (lastPlayedHintRef.current === phase) return
-    lastPlayedHintRef.current = phase
-    const roundIndex = phase === "HINT_ROUND_1" ? 0 : phase === "HINT_ROUND_2" ? 1 : 2
-    const HINT_BUBBLE_MS = 800
+    const hasHints = agents.some((a) => (a.hints?.[0] ?? "").trim().length > 0)
+    if (!hasHints) return
+    const displayRoundIndex = 0
+    const replayKey = `hint_${hintRoundsInHistory}`
+    if (lastPlayedHintRef.current === replayKey) return
+    lastPlayedHintRef.current = replayKey
+    const HINT_BUBBLE_MS = 2500
+    const baseLogCount = displayRoundIndex * agents.length
+    setVisibleLogCount(baseLogCount)
     const timers: ReturnType<typeof setTimeout>[] = []
     for (let i = 0; i < agents.length; i++) {
       const agent = agents[i]
-      const hintText = (agent.hints?.[roundIndex] ?? "") as string
+      const hintText = (agent.hints?.[displayRoundIndex] ?? "") as string
       timers.push(
         setTimeout(() => {
           setVisibleBubbles((prev) => ({ ...prev, [agent.id]: hintText }))
           setSpeakingAgentId(agent.id)
+          setVisibleLogCount(baseLogCount + i + 1)
         }, i * HINT_BUBBLE_MS)
       )
     }
@@ -256,9 +248,8 @@ export default function MafiaSpectatorPage() {
       setTimeout(() => setSpeakingAgentId(null), agents.length * HINT_BUBBLE_MS)
     )
     bubbleTimersRef.current = timers
-    // phase 변경 시에만 타이머 정리(위 phase effect). 여기서 cleanup 시 리렌더마다 타이머가 취소됨.
     return () => {}
-  }, [phase, agents])
+  }, [phase, agents, hintRoundsInHistory])
 
   useEffect(() => {
     if (!gameId || gameFinished || isReplayMode) return
@@ -275,20 +266,13 @@ export default function MafiaSpectatorPage() {
       }
       setReconnecting(false)
 
-      const nowSec = Date.now() / 1000
-      const inCountdown = matchedAtRef.current != null && nowSec < matchedAtRef.current + 10
-
       if (event.type === "initial" && event.mafia_state) {
         const ms = event.mafia_state as MafiaState
         const meta: Record<string, { name: string }> = {}
         for (const [id, a] of Object.entries(ms.agents ?? {})) {
           meta[id] = { name: (a as { name?: string }).name ?? id }
         }
-        if (inCountdown) {
-          bufferedInitialRef.current = { ms, meta }
-        } else {
-          mafiaQueueRef.current?.enqueue({ type: "mafia_state", mafia_state: ms, agentsMeta: meta })
-        }
+        mafiaQueueRef.current?.enqueue({ type: "mafia_state", mafia_state: ms, agentsMeta: meta })
       }
       if (event.type === "state_update" && event.mafia_state) {
         const ms = event.mafia_state as MafiaState
@@ -296,11 +280,7 @@ export default function MafiaSpectatorPage() {
         for (const [id, a] of Object.entries(ms.agents ?? {})) {
           meta[id] = { name: (a as { name?: string }).name ?? id }
         }
-        if (inCountdown) {
-          bufferedUpdatesRef.current.push(ms)
-        } else {
-          mafiaQueueRef.current?.enqueue({ type: "mafia_state", mafia_state: ms, agentsMeta: meta })
-        }
+        mafiaQueueRef.current?.enqueue({ type: "mafia_state", mafia_state: ms, agentsMeta: meta })
       }
     })
     return () => {
@@ -334,9 +314,12 @@ export default function MafiaSpectatorPage() {
 
   return (
     <div className="relative min-h-screen bg-background">
-      <WorldmapNavbar />
+      <GameBackToWorldmap />
 
-      <section className="relative w-full overflow-hidden pt-[72px]" style={{ height: "100vh" }}>
+        <section
+        className="relative w-full overflow-hidden pt-4"
+        style={{ height: "100dvh", minHeight: "100svh" }}
+      >
         <motion.div
           animate={{ scale: [1, 1.05, 1] }}
           transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
@@ -352,7 +335,15 @@ export default function MafiaSpectatorPage() {
           <div className="absolute inset-0 bg-black/50" />
         </motion.div>
 
-        {!gameFinished && !isReplayMode && <GameStartCountdown matchedAt={matchedAt} />}
+        {!gameFinished && !isReplayMode && matchedAt == null && (
+          <WaitingAgentsPanel
+            agents={waitingAgents}
+            visible={gameStatus === "waiting" && waitingAgents.length > 0}
+          />
+        )}
+        {!gameFinished && !isReplayMode && (
+          <GameStartCountdown matchedAt={matchedAt} waitingAgents={waitingAgents} />
+        )}
 
         <AnimatePresence>
           {phase === "VOTE" && (
@@ -365,28 +356,34 @@ export default function MafiaSpectatorPage() {
           )}
         </AnimatePresence>
 
-        <div className="relative z-10 flex flex-col h-full">
-          <div className="pt-3 pb-2">
-            <MafiaRoundInfo
+        <div className="relative z-10 flex flex-col h-full min-h-0">
+          <div className="pt-4 pb-2 shrink-0 flex items-center justify-center pr-28">
+            <div className="w-[60%] min-w-0">
+              <MafiaRoundInfo
               round={round}
               maxRound={maxRound}
               phase={phase}
+              phaseStartedAt={phaseStartedAt}
+              phaseTimeoutSeconds={phaseTimeoutSeconds}
               observerMode={true}
               wolfWord={wolfWord ?? undefined}
               sheepWord={citizenWord ?? undefined}
             />
+            </div>
           </div>
 
-          <MafiaCardGrid
-            agents={agents.map((a) => ({ ...a, isSpeaking: a.id === speakingAgentId }))}
-            phase={phase}
-            observerMode={true}
-            visibleBubbles={visibleBubbles}
-            voteDetail={voteDetail}
-            flippedIds={flippedIds}
-            onAgentFlip={handleFlip}
-            eliminatedId={eliminatedId ?? undefined}
-          />
+          <div className="flex-1 min-h-0 flex flex-col w-full">
+            <MafiaCardGrid
+              agents={agents.map((a) => ({ ...a, isSpeaking: a.id === speakingAgentId }))}
+              phase={phase}
+              observerMode={true}
+              visibleBubbles={visibleBubbles}
+              voteDetail={voteDetail}
+              flippedIds={flippedIds}
+              onAgentFlip={handleFlip}
+              eliminatedId={eliminatedId ?? undefined}
+            />
+          </div>
 
           <VotePanel
             active={showVotePanel}
@@ -394,7 +391,7 @@ export default function MafiaSpectatorPage() {
             totalVoters={agents.filter((a) => !a.eliminated).length}
           />
 
-          <div className="h-12 bg-gradient-to-t from-background to-transparent pointer-events-none shrink-0" />
+          <div className="h-6 sm:h-8 flex-shrink-0 shrink-0 bg-gradient-to-t from-background to-transparent pointer-events-none" />
         </div>
 
         <RevealSequence
@@ -453,7 +450,7 @@ export default function MafiaSpectatorPage() {
         )}
       </section>
 
-      <MafiaTerminalLog logs={logs} />
+      <MafiaTerminalLog logs={logs} visibleCount={visibleLogCount} />
     </div>
   )
 }

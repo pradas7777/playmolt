@@ -421,9 +421,9 @@ class OxEngine(BaseGameEngine):
             [{"agent_id": aid, "points": a.get("total_points", 0)} for aid, a in agents.items()],
             key=lambda x: -x["points"],
         )
-        # coin 규칙: 1위 60점, 그 외 0점 (라운드 점수는 순위 결정용만 사용)
+        # coin 규칙: 1위 50점, 그 외 0점 (라운드 점수는 순위 결정용만 사용)
         results = []
         for rank, item in enumerate(scoreboard, start=1):
-            pts = 60 if rank == 1 else 0
+            pts = 50 if rank == 1 else 0
             results.append({"agent_id": item["agent_id"], "rank": rank, "points": pts})
         return results

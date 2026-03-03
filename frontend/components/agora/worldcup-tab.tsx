@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { useSearchParams } from "next/navigation"
+import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { motion, AnimatePresence } from "motion/react"
 import { Trophy, Clock, Check, Plus, X } from "lucide-react"
 import { MOCK_WORLDCUP, PAST_CHAMPIONS, type WorldCupMatch } from "./agora-data"
@@ -9,8 +9,10 @@ import {
   createWorldcup,
   getWorldcup,
   getWorldcupArchive,
+  getActiveWorldcups,
   voteWorldcupMatch,
   type AgoraWorldcupBracketMatch,
+  type ActiveWorldcupItem,
 } from "@/lib/api/agora"
 import { getStoredToken, getStoredApiKey } from "@/lib/auth-api"
 import { toast } from "sonner"
@@ -186,7 +188,6 @@ function Countdown({ initialTime }: { initialTime: string }) {
   const [timeStr, setTimeStr] = useState(initialTime)
 
   useEffect(() => {
-    // Parse initial "1h 23m" -> seconds
     const parts = initialTime.match(/(\d+)h\s*(\d+)m/)
     if (!parts) return
     let totalSec = parseInt(parts[1]) * 3600 + parseInt(parts[2]) * 60
@@ -205,10 +206,82 @@ function Countdown({ initialTime }: { initialTime: string }) {
   return <span>{timeStr}</span>
 }
 
+// ── 남은 시간 (초 → "1h 23m" 형식) ──
+function TimeRemaining({ seconds }: { seconds: number | null }) {
+  const [sec, setSec] = useState(seconds ?? 0)
+
+  useEffect(() => {
+    if (seconds == null || seconds <= 0) return
+    setSec(seconds)
+    const interval = setInterval(() => {
+      setSec((s) => Math.max(0, s - 1))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [seconds])
+
+  if (seconds == null) return <span>—</span>
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = sec % 60
+  return <span>{h > 0 ? `${h}h ` : ""}{m.toString().padStart(2, "0")}m {s.toString().padStart(2, "0")}s</span>
+}
+
+const ROUND_LABELS: Record<string, string> = {
+  round_32: "32강",
+  round_16: "16강",
+  round_8: "8강",
+  round_4: "4강",
+  final: "결승",
+}
+
+// ── 활성 월드컵 목록 카드 (2개 이상일 때) ──
+function ActiveWorldcupListCard({
+  item,
+  isSelected,
+  onSelect,
+}: {
+  item: ActiveWorldcupItem
+  isSelected: boolean
+  onSelect: () => void
+}) {
+  const roundLabel = ROUND_LABELS[item.current_round] ?? item.current_round
+
+  return (
+    <motion.button
+      type="button"
+      onClick={onSelect}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={`w-full text-left rounded-xl border p-4 transition-all ${
+        isSelected
+          ? "border-teal-500/60 bg-teal-500/15"
+          : "border-border/40 bg-card/60 hover:border-teal-500/30 hover:bg-teal-500/5"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-bold text-foreground">{item.title}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">{item.category}</p>
+          <div className="mt-2 flex items-center gap-3 text-xs">
+            <span className="rounded-full bg-teal-500/20 px-2 py-0.5 font-medium text-teal-400">{roundLabel}</span>
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <Clock className="h-3.5 w-3.5" />
+              <TimeRemaining seconds={item.time_remaining_seconds} />
+            </span>
+          </div>
+        </div>
+        <span className="text-xs text-muted-foreground">참여하기 →</span>
+      </div>
+    </motion.button>
+  )
+}
+
 // ── Main World Cup Tab ──
 export function WorldCupTab() {
   const wc = MOCK_WORLDCUP
   const [showNewModal, setShowNewModal] = useState(false)
+  const [activeWorldcups, setActiveWorldcups] = useState<ActiveWorldcupItem[]>([])
+  const [activeWorldcupsLoading, setActiveWorldcupsLoading] = useState(true)
   const [words, setWords] = useState<string[]>([])
   const [wordInput, setWordInput] = useState("")
   const [wcTitle, setWcTitle] = useState("")
@@ -227,6 +300,8 @@ export function WorldCupTab() {
   const removeWord = (w: string) => setWords(words.filter((x) => x !== w))
 
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
   const worldcupIdFromUrl = searchParams.get("worldcup")
   const [currentWorldcupId, setCurrentWorldcupId] = useState<string | null>(null)
   const [worldcupData, setWorldcupData] = useState<Awaited<ReturnType<typeof getWorldcup>> | null>(null)
@@ -250,9 +325,48 @@ export function WorldCupTab() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+    setActiveWorldcupsLoading(true)
+    getActiveWorldcups()
+      .then((res) => {
+        if (!cancelled) setActiveWorldcups(res.items)
+      })
+      .catch(() => {
+        if (!cancelled) setActiveWorldcups([])
+      })
+      .finally(() => {
+        if (!cancelled) setActiveWorldcupsLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
     const id = worldcupIdFromUrl || currentWorldcupId
     if (id) fetchWorldcup(id)
   }, [worldcupIdFromUrl, currentWorldcupId, fetchWorldcup])
+
+  // 활성 1개이고 URL에 없으면 자동 선택 (worldcup 탭에 있을 때만 적용)
+  const currentTab = searchParams.get("tab")
+  useEffect(() => {
+    if (
+      currentTab === "worldcup" &&
+      activeWorldcups.length === 1 &&
+      !worldcupIdFromUrl &&
+      !currentWorldcupId
+    ) {
+      const params = new URLSearchParams(searchParams.toString())
+      params.set("tab", "worldcup")
+      params.set("worldcup", activeWorldcups[0].id)
+      router.push(`${pathname}?${params.toString()}`, { scroll: false })
+    }
+  }, [currentTab, activeWorldcups, worldcupIdFromUrl, currentWorldcupId, searchParams, router, pathname])
+
+  const handleSelectWorldcup = useCallback((id: string) => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("tab", "worldcup")
+    params.set("worldcup", id)
+    router.push(`${pathname}?${params.toString()}`, { scroll: false })
+  }, [searchParams, router, pathname])
 
   const handleVote = useCallback(
     async (matchId: string, choice: "A" | "B") => {
@@ -308,12 +422,38 @@ export function WorldCupTab() {
 
   const showLive = worldcupData != null
 
+  const hasMultipleActive = activeWorldcups.length >= 2
+  const selectedId = worldcupIdFromUrl || currentWorldcupId
+
   return (
-    <div className="relative pb-24">
+    <div className="relative pt-16 pb-24">
       {wcLoadError && (
         <div className="mb-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {wcLoadError}
         </div>
+      )}
+
+      {/* 활성 월드컵 2개 이상: 목록 표시 (제목, 라운드, 남은시간, 클릭 시 참여) */}
+      {hasMultipleActive && !activeWorldcupsLoading && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6"
+        >
+          <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            진행 중인 월드컵
+          </h3>
+          <div className="flex flex-col gap-3">
+            {activeWorldcups.map((item) => (
+              <ActiveWorldcupListCard
+                key={item.id}
+                item={item}
+                isSelected={selectedId === item.id}
+                onSelect={() => handleSelectWorldcup(item.id)}
+              />
+            ))}
+          </div>
+        </motion.div>
       )}
 
       {/* Live World Cup (from API) */}
@@ -358,8 +498,15 @@ export function WorldCupTab() {
         </>
       )}
 
-      {/* Mock / Demo section when no live worldcup */}
-      {!showLive && (
+      {/* 2개 이상일 때 선택 전 안내 */}
+      {hasMultipleActive && !selectedId && (
+        <p className="text-center text-sm text-muted-foreground py-6">
+          위 목록에서 참여할 월드컵을 선택하세요.
+        </p>
+      )}
+
+      {/* Mock / Demo section when no live worldcup (활성 2개 이상이면 목록만 표시, mock 숨김) */}
+      {!showLive && !hasMultipleActive && (
         <>
           <motion.div
             initial={{ opacity: 0, y: 16 }}

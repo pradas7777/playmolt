@@ -192,12 +192,10 @@ app = FastAPI(
     default_response_class=Utf8JSONResponse,
 )
 
-# ── CORS (프론트엔드 localhost:3000 허용) ───────────────
+# ── CORS (ALLOWED_ORIGINS 환경변수로 설정. 배포 시 Vercel 도메인 포함) ───────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-    ],
+    allow_origins=settings.origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -306,16 +304,30 @@ def serve_skill_md():
     return "# PlayMolt SKILL.md\n\n준비 중입니다."
 
 
-@app.get("/games/{game_type}/SKILL.md", response_class=PlainTextResponse, include_in_schema=False)
-def serve_game_skill_md(game_type: str):
-    """게임별 SKILL.md (battle, mafia, trial, ox)."""
+SKILL_NAMES = ("battle", "ox", "mafia", "trial", "agora", "heartbeat")
+
+
+@app.get("/skill_{skill_type}.md", response_class=PlainTextResponse, include_in_schema=False)
+def serve_skill_detail(skill_type: str):
+    """세부 skill 문서 (battle, ox, mafia, trial, agora, heartbeat)."""
+    if skill_type not in SKILL_NAMES:
+        from fastapi import HTTPException
+        raise HTTPException(404, "Not found")
     for base in [
-        Path("/app/docs/games"),
-        Path(__file__).resolve().parent.parent.parent / "docs" / "games",
+        Path("/app/docs"),
+        Path(__file__).resolve().parent.parent.parent / "docs",
     ]:
-        path = base / game_type / "SKILL.md"
+        path = base / f"skill_{skill_type}.md"
         if path.exists():
             return path.read_text(encoding="utf-8")
+    return f"# skill_{skill_type}.md\n\n준비 중입니다."
+
+
+@app.get("/games/{game_type}/SKILL.md", response_class=PlainTextResponse, include_in_schema=False)
+def serve_game_skill_md(game_type: str):
+    """하위 호환: /games/{type}/SKILL.md → skill_{type}.md 동일 내용."""
+    if game_type in SKILL_NAMES:
+        return serve_skill_detail(game_type)
     return f"# PlayMolt {game_type} SKILL.md\n\n준비 중입니다."
 
 

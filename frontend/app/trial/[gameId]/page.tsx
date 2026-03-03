@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { motion, AnimatePresence } from "motion/react"
 import Image from "next/image"
 
-import { WorldmapNavbar } from "@/components/worldmap/worldmap-navbar"
+import { GameBackToWorldmap } from "@/components/game/game-back-to-worldmap"
 import { CaseInfoPanel, type TrialPhase } from "@/components/trial/case-info-panel"
 import { EvidencePanel } from "@/components/trial/evidence-panel"
 import { TrialCardLayout, type TrialAgent } from "@/components/trial/trial-card-layout"
@@ -14,6 +14,7 @@ import { JuryVotePanel, type JuryVote } from "@/components/trial/jury-vote-panel
 import { VerdictSequence } from "@/components/trial/verdict-sequence"
 import { TrialTerminalLog, type TrialLogEntry } from "@/components/trial/trial-terminal-log"
 import { GameStartCountdown } from "@/components/game/GameStartCountdown"
+import { WaitingAgentsPanel } from "@/components/game/waiting-agents-panel"
 
 import {
   getSpectatorState,
@@ -27,6 +28,7 @@ import {
   mapTrialHistoryToLogs,
   buildTrialReplaySteps,
   getBubbleSequenceFromHistory,
+  getJuryVerdictBubblesFromHistory,
   getBubbleCountFromState,
 } from "@/lib/game/trialMapper"
 import { TrialEventQueue } from "@/lib/game/trialEventQueue"
@@ -57,19 +59,33 @@ export default function TrialSpectatorPage() {
   const [verdict, setVerdict] = useState<string | null>(null)
   const [winnerTeam, setWinnerTeam] = useState<string | null>(null)
   const [matchedAt, setMatchedAt] = useState<number | null>(null)
+  const [waitingAgents, setWaitingAgents] = useState<{ id: string; name: string }[]>([])
+  const [gameStatus, setGameStatus] = useState<string>("waiting")
 
   const [currentSpeaker, setCurrentSpeaker] = useState<SpeakerRole>("PROSECUTOR")
   const [currentStatement, setCurrentStatement] = useState("")
   const [currentSpeakerName, setCurrentSpeakerName] = useState("")
   const [visibleBubble, setVisibleBubble] = useState<{ agentId: string; text: string } | null>(null)
+  const [bubbleSteps, setBubbleSteps] = useState<{ agentId: string; text: string }[]>([])
+  const [bubbleIndex, setBubbleIndex] = useState(0)
+  const [fixedBubbles, setFixedBubbles] = useState<Record<string, string>>({})
+  const lastRoundKeyRef = useRef<string>("")
   const [revealedLogCount, setRevealedLogCount] = useState(0)
+  const [displayLogs, setDisplayLogs] = useState<TrialLogEntry[]>([])
   const [batchTargetRevealed, setBatchTargetRevealed] = useState(0)
   const revealedLogCountRef = useRef(0)
+  const displayLogsLengthRef = useRef(0)
   const logRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [juryVotes, setJuryVotes] = useState<JuryVote[]>([])
   const [activeJurorIdx, setActiveJurorIdx] = useState(0)
   const [showVotePanel, setShowVotePanel] = useState(false)
+  const [verdictPrepStep, setVerdictPrepStep] = useState<"bubbles" | "vote_reveal" | "done" | null>(null)
+  const verdictDataRef = useRef<{
+    verdict: "GUILTY" | "NOT_GUILTY"
+    guiltyCount: number
+    notGuiltyCount: number
+  } | null>(null)
   const [verdictState, setVerdictState] = useState<{
     active: boolean
     verdict: "GUILTY" | "NOT_GUILTY"
@@ -100,34 +116,71 @@ export default function TrialSpectatorPage() {
         ? mapTrialHistoryToLogs(ts.history, agentsMeta)
         : ui.logs
       setLogs(fullLogs)
-      setBatchTargetRevealed(revealedLogCountRef.current + getBubbleCountFromState(ts))
-      const votePhase = ui.phase === "JURY_FINAL" || ui.phase === "VERDICT"
-      if (votePhase && ui.agents.length) {
-        const jurors = ui.agents.filter((a) => a.role.startsWith("JUROR"))
-        setJuryVotes(
-          jurors.map((j) => ({
-            jurorName: j.name,
-            vote: j.vote,
-            revealed: j.voteRevealed ?? false,
-          }))
-        )
-        setShowVotePanel(true)
-      } else {
-        setShowVotePanel(false)
+      if (fullLogs.length < displayLogsLengthRef.current) {
+        setDisplayLogs([])
+        setRevealedLogCount(0)
+        revealedLogCountRef.current = 0
+        displayLogsLengthRef.current = 0
       }
+      setBatchTargetRevealed(revealedLogCountRef.current + getBubbleCountFromState(ts))
+
+      const votePhase = ui.phase === "JURY_FINAL" || ui.phase === "VERDICT"
+      const jurors = ui.agents.filter((a) => a.role.startsWith("JUROR"))
+
       if (ui.phase === "VERDICT" && ui.verdict) {
         const isGuilty = ui.verdict.toUpperCase() === "GUILTY"
         const guiltyCount = ui.agents.filter((a) => a.role.startsWith("JUROR") && a.vote === "GUILTY").length
         const notGuiltyCount = ui.agents.filter((a) => a.role.startsWith("JUROR") && a.vote === "NOT_GUILTY").length
-        setVerdictState({
-          active: true,
+        verdictDataRef.current = {
           verdict: isGuilty ? "GUILTY" : "NOT_GUILTY",
           guiltyCount: guiltyCount || (isGuilty ? 2 : 0),
           notGuiltyCount: notGuiltyCount || (isGuilty ? 0 : 2),
-        })
+        }
+        const juryBubbles = getJuryVerdictBubblesFromHistory(ts.history)
+        setVerdictPrepStep("bubbles")
+        setBubbleSteps(juryBubbles)
+        setBubbleIndex(0)
+        setJuryVotes(
+          jurors.map((j) => ({
+            jurorName: j.name,
+            vote: j.vote,
+            revealed: false,
+          }))
+        )
+        setShowVotePanel(false)
+        setActiveJurorIdx(0)
+        setVerdictState((prev) => ({ ...prev, active: false }))
+      } else {
+        setVerdictPrepStep(null)
+        verdictDataRef.current = null
+        if (votePhase && ui.agents.length) {
+          setJuryVotes(
+            jurors.map((j) => ({
+              jurorName: j.name,
+              vote: j.vote,
+              revealed: j.voteRevealed ?? false,
+            }))
+          )
+          setShowVotePanel(true)
+        } else {
+          setShowVotePanel(false)
+        }
+        setVerdictState((prev) => ({ ...prev, active: false }))
       }
-      // 말풍선: 해당 라운드 첫 발언만 표시하고 다음 라운드까지 유지
-      const steps = getBubbleSequenceFromHistory(ts.history, ui.agents)
+
+      const steps =
+        ui.phase === "VERDICT"
+          ? getJuryVerdictBubblesFromHistory(ts.history)
+          : getBubbleSequenceFromHistory(ts.history, ui.agents)
+
+      const roundKey = `${ui.phase}-${ts.history?.length ?? 0}`
+      if (roundKey !== lastRoundKeyRef.current) {
+        lastRoundKeyRef.current = roundKey
+        setFixedBubbles({})
+      }
+
+      setBubbleSteps(steps)
+      setBubbleIndex(0)
       const first = steps[0]
       setAgents(
         ui.agents.map((a) => ({
@@ -148,11 +201,91 @@ export default function TrialSpectatorPage() {
 
   revealedLogCountRef.current = revealedLogCount
 
-  // 로그: 말풍선 속도(2.8초)에 맞춰 한 줄씩 노출
+  // 말풍선 순차 재생: bubbleIndex를 BUBBLE_DURATION_MS 간격으로 증가
+  useEffect(() => {
+    if (bubbleSteps.length === 0) {
+      if (verdictPrepStep === "bubbles") {
+        setVerdictPrepStep("vote_reveal")
+        setShowVotePanel(true)
+        setActiveJurorIdx(0)
+      }
+      return
+    }
+    if (bubbleIndex >= bubbleSteps.length) return
+    const current = bubbleSteps[bubbleIndex]
+    setVisibleBubble({ agentId: current.agentId, text: current.text })
+    setAgents((prev) =>
+      prev.map((a) => ({
+        ...a,
+        isSpeaking: a.id === current.agentId,
+      }))
+    )
+    if (bubbleIndex >= bubbleSteps.length - 1) {
+      setFixedBubbles((prev) => ({
+        ...prev,
+        ...Object.fromEntries(bubbleSteps.map((s) => [s.agentId, s.text])),
+      }))
+      if (verdictPrepStep === "bubbles") {
+        const t = setTimeout(() => {
+          setVerdictPrepStep("vote_reveal")
+          setShowVotePanel(true)
+          setActiveJurorIdx(0)
+        }, BUBBLE_DURATION_MS)
+        return () => clearTimeout(t)
+      }
+      return
+    }
+    const t = setTimeout(() => setBubbleIndex((i) => i + 1), BUBBLE_DURATION_MS)
+    return () => clearTimeout(t)
+  }, [bubbleSteps, bubbleIndex, verdictPrepStep])
+
+  // 배심원 판결 준비: vote_reveal 단계에서 순차적으로 유무죄 공개
+  const VOTE_REVEAL_DURATION_MS = 1800
+  useEffect(() => {
+    if (verdictPrepStep !== "vote_reveal" || juryVotes.length === 0) return
+    const maxIdx = juryVotes.length - 1
+    setJuryVotes((prev) =>
+      prev.map((v, i) => ({
+        ...v,
+        revealed: i <= activeJurorIdx && v.vote != null,
+      }))
+    )
+    if (activeJurorIdx > maxIdx) {
+      setVerdictPrepStep("done")
+      const data = verdictDataRef.current
+      if (data) {
+        setVerdictState({
+          active: true,
+          verdict: data.verdict,
+          guiltyCount: data.guiltyCount,
+          notGuiltyCount: data.notGuiltyCount,
+        })
+      }
+      return
+    }
+    const t = setTimeout(() => setActiveJurorIdx((i) => i + 1), VOTE_REVEAL_DURATION_MS)
+    return () => clearTimeout(t)
+  }, [verdictPrepStep, activeJurorIdx, juryVotes.length])
+
+  // 로그: 말풍선 속도(2.8초)에 맞춰 한 줄씩 노출, 노출 시점에 타임스탬프 기록
   useEffect(() => {
     if (revealedLogCount >= batchTargetRevealed || revealedLogCount >= logs.length) return
     logRevealTimerRef.current = setTimeout(() => {
       logRevealTimerRef.current = null
+      const nextIdx = revealedLogCount
+      const nextEntry = logs[nextIdx]
+      const ts = new Date().toLocaleTimeString("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      })
+      if (nextEntry) {
+        setDisplayLogs((prev) => {
+          const next = [...prev, { ...nextEntry, timestamp: ts }]
+          displayLogsLengthRef.current = next.length
+          return next
+        })
+      }
       setRevealedLogCount((r) => Math.min(r + 1, batchTargetRevealed, logs.length))
     }, BUBBLE_DURATION_MS)
     return () => {
@@ -161,16 +294,27 @@ export default function TrialSpectatorPage() {
         logRevealTimerRef.current = null
       }
     }
-  }, [revealedLogCount, batchTargetRevealed, logs.length])
+  }, [revealedLogCount, batchTargetRevealed, logs])
 
   const handleStartReplay = useCallback(async () => {
     if (!gameId) return
     try {
-      const { history, agents_meta } = await getGameLogs(gameId)
+      const [logsRes, spectatorRes] = await Promise.all([
+        getGameLogs(gameId),
+        getSpectatorState(gameId),
+      ])
+      const { history, agents_meta } = logsRes
       const meta = agents_meta ?? {}
+      const baseState = spectatorRes.trial_state
+        ? {
+            case: spectatorRes.trial_state.case,
+            expansion: spectatorRes.trial_state.expansion,
+          }
+        : undefined
       const steps = buildTrialReplaySteps(
         (history ?? []) as Parameters<typeof buildTrialReplaySteps>[0],
-        meta
+        meta,
+        baseState
       )
       setReplayAgentsMeta(meta)
       setReplaySteps(steps)
@@ -193,6 +337,7 @@ export default function TrialSpectatorPage() {
     }
   }, [])
 
+  const hasReplayQuery = !!searchParams.get("replay")
   useEffect(() => {
     if (!gameId) return
     getSpectatorState(gameId)
@@ -202,6 +347,8 @@ export default function TrialSpectatorPage() {
           return
         }
         if (data.matched_at != null) setMatchedAt(data.matched_at)
+        setWaitingAgents(data.waiting_agents ?? [])
+        setGameStatus(data.status)
         setGameFinished(data.status === "finished")
         if (data.trial_state) {
           const meta: Record<string, { name: string }> = {}
@@ -210,17 +357,17 @@ export default function TrialSpectatorPage() {
           }
           const nowSec = Date.now() / 1000
           const inCountdown = data.matched_at != null && nowSec < data.matched_at + 10
+          const skipInitialApply = data.status === "finished" && hasReplayQuery
           if (inCountdown && data.status !== "finished") {
-            // 10초 카운트다운 중: 적용하지 않고 큐에 넣을 버퍼만 세팅 → 10초 후 순차 재생
             bufferedInitialRef.current = { ts: data.trial_state, meta }
-          } else {
+          } else if (!skipInitialApply) {
             applyTrialState(data.trial_state, meta)
           }
         }
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false))
-  }, [gameId, applyTrialState])
+  }, [gameId, applyTrialState, hasReplayQuery])
 
   useEffect(() => {
     if (!isReplayMode || !replaySteps.length) return
@@ -364,11 +511,11 @@ export default function TrialSpectatorPage() {
 
   return (
     <div className="relative min-h-screen bg-background">
-      <WorldmapNavbar />
+      <GameBackToWorldmap />
 
       <section
-        className="relative w-full overflow-hidden pt-[72px]"
-        style={{ height: "100vh" }}
+        className="relative w-full overflow-hidden pt-12"
+        style={{ height: "100dvh", minHeight: "100svh" }}
       >
         <motion.div
           animate={{ scale: [1, 1.05, 1] }}
@@ -385,8 +532,14 @@ export default function TrialSpectatorPage() {
           <div className="absolute inset-0 bg-black/45" />
         </motion.div>
 
+        {!gameFinished && !isReplayMode && matchedAt == null && (
+          <WaitingAgentsPanel
+            agents={waitingAgents}
+            visible={gameStatus === "waiting" && waitingAgents.length > 0}
+          />
+        )}
         {!gameFinished && !isReplayMode && (
-          <GameStartCountdown matchedAt={matchedAt} />
+          <GameStartCountdown matchedAt={matchedAt} waitingAgents={waitingAgents} />
         )}
 
         <AnimatePresence>
@@ -428,12 +581,13 @@ export default function TrialSpectatorPage() {
                   phase={phase}
                   currentSpeaker={currentSpeaker}
                   visibleBubble={visibleBubble}
+                  fixedBubbles={fixedBubbles}
                   flippedIds={flippedIds}
                   onAgentFlip={handleFlip}
                 />
 
-                {showCenterStatement && (
-                  <div className="absolute top-[20px] left-1/2 -translate-x-1/2 z-30">
+                {showCenterStatement && !isReplayMode && (
+                  <div className="absolute top-[8px] left-1/2 -translate-x-1/2 z-20">
                     <CenterStatementPanel
                       currentSpeaker={currentSpeaker}
                       speakerName={currentSpeakerName || "—"}
@@ -447,7 +601,7 @@ export default function TrialSpectatorPage() {
                 )}
 
                 {showVotePanel && (
-                  <div className="absolute top-[20px] left-1/2 -translate-x-1/2 z-30">
+                  <div className={`absolute z-20 ${isReplayMode ? "bottom-[220px] right-4" : "bottom-[200px] left-1/2 -translate-x-1/2"}`}>
                     <JuryVotePanel
                       active={showVotePanel}
                       votes={juryVotes}
@@ -468,7 +622,7 @@ export default function TrialSpectatorPage() {
             </div>
           </div>
 
-          <div className="h-24 bg-gradient-to-t from-background to-transparent pointer-events-none shrink-0" />
+          <div className="h-8 sm:h-10 flex-shrink-0 shrink-0 bg-gradient-to-t from-background to-transparent pointer-events-none" />
         </div>
 
         <VerdictSequence
@@ -542,7 +696,7 @@ export default function TrialSpectatorPage() {
         )}
       </section>
 
-      <TrialTerminalLog logs={logs.slice(0, revealedLogCount)} />
+      <TrialTerminalLog logs={displayLogs} />
     </div>
   )
 }

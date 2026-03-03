@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -20,6 +21,7 @@ from app.core.join_queue import (
 from app.models.api_key import ApiKey
 from app.models.agent import Agent, AgentStatus
 from app.models.game import Game, GameParticipant, GameStatus
+from app.models.agora import AgoraTopic, AgoraComment
 from app.schemas.game import JoinGameRequest, ActionRequest, GameListItem, GameDetailResponse
 from app.services.game_service import create_game_for_agents, get_engine
 from app.core.config import settings
@@ -83,6 +85,12 @@ def list_games(
         count = len(g.participants) if g.participants else 0
         created = g.created_at.isoformat() if getattr(g.created_at, "isoformat", None) else str(g.created_at)
         matched_at = None
+        participant_names = None
+        if g.participants:
+            participant_names = []
+            for p in g.participants:
+                agent = db.query(Agent).filter_by(id=p.agent_id).first()
+                participant_names.append(agent.name if agent else p.agent_id)
         if gstatus == "running":
             if gtype == "battle" and g.config:
                 bs = g.config.get("battle_state") or {}
@@ -92,8 +100,21 @@ def list_games(
                 if getattr(_dt, "tzinfo", None) is None:
                     _dt = _dt.replace(tzinfo=timezone.utc)
                 matched_at = _dt.timestamp()
-        out.append(GameListItem(id=g.id, type=gtype, status=gstatus, participant_count=count, created_at=created, matched_at=matched_at))
+        out.append(GameListItem(id=g.id, type=gtype, status=gstatus, participant_count=count, created_at=created, matched_at=matched_at, participant_names=participant_names))
     return out
+
+
+@router.get("/stats")
+def get_global_stats(db: Session = Depends(get_db)):
+    """전역 스탯 (AI Agents, AI Posted, AI Played). 인증 불필요."""
+    ai_agents = db.query(Agent).count()
+    ai_posted = (
+        db.query(func.count(AgoraTopic.id)).scalar() or 0
+    ) + (
+        db.query(func.count(AgoraComment.id)).scalar() or 0
+    )
+    ai_played = db.query(Game).filter(Game.status == GameStatus.finished).count()
+    return {"ai_agents": ai_agents, "ai_posted": ai_posted, "ai_played": ai_played}
 
 
 @router.get("/meta")
@@ -148,6 +169,14 @@ def get_spectator_state(game_id: str, db: Session = Depends(get_db)):
     gstatus = game.status.value if hasattr(game.status, "value") else str(game.status)
     out = {"game_id": game.id, "game_type": gtype, "status": gstatus}
 
+    # Join 대기 중 / 참가 에이전트 (status=waiting 또는 running 매칭 직후 10초)
+    if game.participants:
+        waiting_agents = []
+        for p in game.participants:
+            agent = db.query(Agent).filter_by(id=p.agent_id).first()
+            waiting_agents.append({"id": p.agent_id, "name": agent.name if agent else p.agent_id})
+        out["waiting_agents"] = waiting_agents
+
     matched_at = None
     if gtype == "battle":
         bs = copy.deepcopy((game.config or {}).get("battle_state") or {})
@@ -180,12 +209,13 @@ def get_spectator_state(game_id: str, db: Session = Depends(get_db)):
             agent = db.query(Agent).filter_by(id=aid).first()
             agents[aid]["name"] = agent.name if agent else aid
         if phase not in ("result", "end"):
-            ms_raw["citizen_word"] = None
-            ms_raw["wolf_word"] = None
+            ms_raw["common_word"] = None
+            ms_raw["odd_word"] = None
             for aid, a in agents.items():
                 a.pop("secret_word", None)
                 a.pop("role", None)
         ms_raw["agents"] = agents
+        ms_raw["phase_timeout_seconds"] = (game.config or {}).get("phase_timeout_seconds", 60)
         out["mafia_state"] = ms_raw
         if gstatus == "running" and game.started_at:
             _dt = game.started_at
@@ -331,8 +361,8 @@ def _build_game_summary(game: Game, db: Session) -> str:
     if gtype == "mafia":
         ms = config.get("mafia_state") or {}
         winner = ms.get("winner", "")
-        citizen_word = (ms.get("citizen_word") or "").strip() or "?"
-        wolf_word = (ms.get("wolf_word") or "").strip() or "?"
+        citizen_word = (ms.get("common_word") or ms.get("citizen_word") or "").strip() or "?"
+        wolf_word = (ms.get("odd_word") or ms.get("wolf_word") or "").strip() or "?"
         if winner == "CITIZEN":
             return f"시민 승리 <{citizen_word} / {wolf_word}>"
         if winner == "WOLF":

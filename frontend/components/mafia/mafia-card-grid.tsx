@@ -66,7 +66,7 @@ export function MafiaCardGrid({
   } | null>(null)
   const [visibleVoteCount, setVisibleVoteCount] = useState(0)
 
-  const showVoteArrows = (phase === "VOTE" || phase === "REVEAL") && voteDetail.length > 0
+  const showVoteArrows = (phase === "VOTE" || phase === "REVOTE" || phase === "REVEAL") && voteDetail.length > 0
 
   useEffect(() => {
     if (!showVoteArrows || agents.length === 0) {
@@ -117,12 +117,19 @@ export function MafiaCardGrid({
     cardRefs.current[idx]?.triggerAccusation()
   }, [])
 
-  // Split into left column (0, 1, 2) and right column (3, 4, 5)
-  const leftAgents = agents.slice(0, 3)
-  const rightAgents = agents.slice(3, 6)
+  const hasAgents = agents.length > 0
 
-  const isHintPhase = phase.startsWith("HINT_ROUND")
-  const isVotePhase = phase === "VOTE"
+  // 정오각형 배치: 5개 카드, 꼭짓점에 배치 (0=상단, 시계방향), 반지름 40%
+  const getPentagonPosition = (idx: number) => {
+    const angle = (-90 + idx * 72) * (Math.PI / 180)
+    return {
+      x: 50 + 40 * Math.cos(angle),
+      y: 50 + 40 * Math.sin(angle),
+    }
+  }
+
+  const isHintPhase = phase === "HINT"
+  const isVotePhase = phase === "VOTE" || phase === "REVOTE"
 
   const getGlowStyle = (agent: MafiaAgent): string => {
     if (agent.eliminated) return ""
@@ -132,21 +139,27 @@ export function MafiaCardGrid({
     return ""
   }
 
-  const renderCard = (agent: MafiaAgent, idx: number, side: "left" | "right") => {
+  const renderCard = (agent: MafiaAgent, idx: number) => {
     const bubbleText = visibleBubbles[agent.id]
     const hintForCard = observerMode ? agent.word : undefined
     const roleForCard = observerMode || agent.roleRevealed
       ? (agent.role === "WOLF" ? "\uD83D\uDC3A WOLF" : "\uD83D\uDC11 SHEEP")
       : "???"
     const roleRevealed = observerMode || agent.roleRevealed
+    const pos = getPentagonPosition(idx)
+    const bubbleSide = idx <= 2 ? "right" : "left"
 
     return (
       <motion.div
         key={agent.id}
         layout
-        className={`relative flex ${
-          side === "left" ? "flex-row" : "flex-row-reverse"
-        } items-center gap-2`}
+        className="relative flex flex-col items-center z-10"
+        style={{
+          position: "absolute",
+          left: `${pos.x}%`,
+          top: `${pos.y}%`,
+          transform: "translate(-50%, -50%)",
+        }}
       >
         {/* Card */}
         <motion.div
@@ -161,7 +174,7 @@ export function MafiaCardGrid({
           transition={{ type: "spring", stiffness: 300, damping: 25 }}
           className={`relative rounded-lg transition-all duration-300 ${getGlowStyle(agent)}`}
         >
-          <div className="transform scale-[0.38] sm:scale-[0.44] origin-center">
+          <div className="transform scale-[0.55] sm:scale-[0.6] md:scale-[0.65] origin-center">
             <AgentCard
               ref={(el) => {
                 cardRefs.current[idx] = el
@@ -200,14 +213,14 @@ export function MafiaCardGrid({
           </AnimatePresence>
         </motion.div>
 
-        {/* Speech bubble */}
-        <div className="flex-shrink-0 w-[120px] sm:w-[160px] min-h-[40px]">
+        {/* Speech bubble - 카드 위쪽에 표시 */}
+        <div className="absolute -top-16 left-1/2 -translate-x-1/2 w-[140px] sm:w-[180px] min-h-[36px] flex justify-center">
           <AnimatePresence>
             {bubbleText && (
               <SpeechBubble
                 agentName={agent.name}
                 text={bubbleText}
-                side={side === "left" ? "right" : "left"}
+                side={bubbleSide}
                 visible={!!bubbleText}
                 delay={0}
                 isVote={isVotePhase}
@@ -222,7 +235,8 @@ export function MafiaCardGrid({
   return (
     <div
       ref={containerRef}
-      className="flex items-center justify-center flex-1 min-h-0 px-2 sm:px-4 w-full max-w-[1100px] mx-auto relative overflow-hidden"
+      className="relative flex items-center justify-center flex-1 min-h-[380px] px-2 sm:px-4 w-full max-w-[900px] mx-auto overflow-visible"
+      style={{ aspectRatio: "1" }}
     >
       {/* Vote arrows overlay */}
       {showVoteArrows && arrowLayout && visibleVoteCount > 0 && (
@@ -273,27 +287,23 @@ export function MafiaCardGrid({
         </svg>
       )}
 
-      {/* Left column */}
-      <div className="flex flex-col gap-1.5 sm:gap-2 items-end flex-1 min-h-0 justify-center">
-        {leftAgents.map((agent, i) => renderCard(agent, i, "left"))}
-      </div>
+      {/* 정오각형 배치 */}
+      {hasAgents ? (
+        agents.map((agent, i) => renderCard(agent, i))
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="w-[140px] h-[200px] rounded-lg bg-white/10 border border-white/20 animate-pulse" />
+        </div>
+      )}
 
-      {/* Center campfire space */}
-      <div className="w-12 sm:w-16 flex flex-col items-center justify-center shrink-0">
-        <motion.div
-          animate={{ scale: [1, 1.05, 1], opacity: [0.6, 1, 0.6] }}
-          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-          className="text-2xl sm:text-3xl"
-        >
-          {"\uD83D\uDD25"}
-        </motion.div>
-        <span className="text-[8px] font-mono text-white/30 mt-0.5">Camp</span>
-      </div>
-
-      {/* Right column */}
-      <div className="flex flex-col gap-1.5 sm:gap-2 items-start flex-1 min-h-0 justify-center">
-        {rightAgents.map((agent, i) => renderCard(agent, i + 3, "right"))}
-      </div>
+      {/* 중앙 캠프파이어 */}
+      <motion.div
+        animate={{ scale: [1, 1.05, 1], opacity: [0.6, 1, 0.6] }}
+        transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl sm:text-3xl pointer-events-none z-0"
+      >
+        {"\uD83D\uDD25"}
+      </motion.div>
     </div>
   )
 }

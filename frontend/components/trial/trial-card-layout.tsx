@@ -25,6 +25,8 @@ interface TrialCardLayoutProps {
   phase: TrialPhase
   currentSpeaker: SpeakerRole
   visibleBubble: { agentId: string; text: string } | null
+  /** 라운드 내 모든 말풍선 (순차 재생 후 고정 표시용) */
+  fixedBubbles?: Record<string, string>
   flippedIds: Set<string>
   onAgentFlip: (id: string) => void
 }
@@ -32,12 +34,12 @@ interface TrialCardLayoutProps {
 const CARD_FRAME = "/images/cards/trial_game_card.png"
 
 const roleBadgeText: Record<string, string> = {
-  JUDGE: "\u2696\uFE0F \uC218\uAD50",
-  PROSECUTOR: "\u2694\uFE0F \uAC80\uC0AC",
-  DEFENSE: "\uD83D\uDEE1\uFE0F \uBCC0\uD638\uC0AC",
-  JUROR_1: "\u2696\uFE0F \uBC30\uC2EC\uC6D0",
-  JUROR_2: "\u2696\uFE0F \uBC30\uC2EC\uC6D0",
-  JUROR_3: "\u2696\uFE0F \uBC30\uC2EC\uC6D0",
+  JUDGE: "⚖️ 판사",
+  PROSECUTOR: "⚔️ 검사",
+  DEFENSE: "🛡️ 변호사",
+  JUROR_1: "배심원1",
+  JUROR_2: "배심원2",
+  JUROR_3: "배심원3",
 }
 
 const roleGlowColor: Record<string, string> = {
@@ -63,6 +65,7 @@ export function TrialCardLayout({
   phase,
   currentSpeaker,
   visibleBubble,
+  fixedBubbles = {},
   flippedIds,
   onAgentFlip,
 }: TrialCardLayoutProps) {
@@ -81,7 +84,6 @@ export function TrialCardLayout({
     scale: string = "scale-[0.52] sm:scale-[0.58]"
   ) => {
     const isSpeaking = agent.isSpeaking
-    const hasBubble = visibleBubble?.agentId === agent.id
 
     return (
       <motion.div
@@ -146,37 +148,16 @@ export function TrialCardLayout({
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center relative px-2 sm:px-4">
-      {/* Judge (중앙 상단) — 판사 카드 1장 */}
-      {judge && (
-        <div className="flex flex-col items-center gap-1 relative mb-3 w-full">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-white/50 mb-0.5">판사</span>
-          <div className="flex flex-col items-center gap-1 relative">
-            {renderCard(judge, 0, "scale-[0.48] sm:scale-[0.54]")}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 -translate-y-full z-40">
-              {visibleBubble?.agentId === judge.id && (
-                <VolatileSpeechBubble
-                  agentName={judge.name}
-                  text={visibleBubble.text}
-                  role="JUDGE"
-                  position="top"
-                  visible
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Top row: Prosecutor (left) --- gap for center panel --- Defense (right) */}
-      <div className="flex items-start justify-center gap-4 sm:gap-8 w-full max-w-[900px] mb-4">
+      {/* Top row: Prosecutor (left) — Judge (center) — Defense (right) */}
+      <div className="flex items-start justify-center gap-3 sm:gap-6 w-full max-w-[900px] mb-4">
         {/* Prosecutor with speech bubble */}
         <div className="flex flex-col items-center gap-1 relative">
           {prosecutor && renderCard(prosecutor, judge ? 1 : 0)}
-          {/* Bubble floats to the right */}
           <div className="absolute top-4 -right-[170px] sm:-right-[210px] z-40">
-            {prosecutor && visibleBubble?.agentId === prosecutor.id && (
+            {prosecutor && (fixedBubbles[prosecutor.id] ?? (visibleBubble?.agentId === prosecutor.id ? visibleBubble.text : null)) && (
               <VolatileSpeechBubble
                 agentName={prosecutor.name}
-                text={visibleBubble.text}
+                text={fixedBubbles[prosecutor.id] ?? visibleBubble!.text}
                 role="PROSECUTOR"
                 position="right"
                 visible
@@ -185,18 +166,32 @@ export function TrialCardLayout({
           </div>
         </div>
 
-        {/* Center space (for CenterStatementPanel rendered by parent) */}
-        <div className="w-[320px] sm:w-[380px] shrink-0" />
+        {/* Judge (중앙) — 판사 카드 */}
+        {judge && (
+          <div className="flex flex-col items-center gap-1 relative">
+            {renderCard(judge, 0, "scale-[0.48] sm:scale-[0.54]")}
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 -translate-y-full z-40">
+              {(fixedBubbles[judge.id] ?? (visibleBubble?.agentId === judge.id ? visibleBubble.text : null)) && (
+                <VolatileSpeechBubble
+                  agentName={judge.name}
+                  text={fixedBubbles[judge.id] ?? visibleBubble!.text}
+                  role="JUDGE"
+                  position="top"
+                  visible
+                />
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Defense with speech bubble */}
         <div className="flex flex-col items-center gap-1 relative">
           {defense && renderCard(defense, judge ? 2 : 1)}
-          {/* Bubble floats to the left */}
           <div className="absolute top-4 -left-[170px] sm:-left-[210px] z-40">
-            {defense && visibleBubble?.agentId === defense.id && (
+            {defense && (fixedBubbles[defense.id] ?? (visibleBubble?.agentId === defense.id ? visibleBubble.text : null)) && (
               <VolatileSpeechBubble
                 agentName={defense.name}
-                text={visibleBubble.text}
+                text={fixedBubbles[defense.id] ?? visibleBubble!.text}
                 role="DEFENSE"
                 position="left"
                 visible
@@ -213,10 +208,10 @@ export function TrialCardLayout({
             {renderCard(juror, i + (judge ? 3 : 2), "scale-[0.46] sm:scale-[0.52]")}
             {/* Bubble floats above */}
             <div className="absolute -top-[80px] left-1/2 -translate-x-1/2 z-40">
-              {visibleBubble?.agentId === juror.id && (
+              {(fixedBubbles[juror.id] ?? (visibleBubble?.agentId === juror.id ? visibleBubble.text : null)) && (
                 <VolatileSpeechBubble
                   agentName={juror.name}
-                  text={visibleBubble.text}
+                  text={fixedBubbles[juror.id] ?? visibleBubble!.text}
                   role="JUROR"
                   position="top"
                   visible

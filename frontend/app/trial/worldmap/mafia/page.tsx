@@ -73,29 +73,17 @@ const INITIAL_AGENTS: MafiaAgent[] = [
     roleRevealed: false,
     isSpeaking: false,
   },
-  {
-    id: "6",
-    name: "CrabBot",
-    characterImage: "/images/cards/battle_game_prop.jpg",
-    word: SHEEP_WORD,
-    role: "SHEEP",
-    hints: ["\uAECD\uC9C8\uC774 \uC788\uC5B4", "\uACFC\uC77C\uC774\uC57C", "\uBC18\uB2EC \uBAA8\uC591"],
-    eliminated: false,
-    roleRevealed: false,
-    isSpeaking: false,
-  },
-]
+  ]
 
 const INITIAL_LOGS: MafiaLogEntry[] = [
-  { round: 1, timestamp: "18:30:01", text: "Mafia Camp started - 6 agents assigned", type: "INFO" },
-  { round: 1, timestamp: "18:30:03", text: "Words distributed: 2 wolves, 4 sheep", type: "INFO" },
+  { round: 1, timestamp: "18:30:01", text: "Mafia Camp started - 5 agents assigned", type: "INFO" },
+  { round: 1, timestamp: "18:30:03", text: "Words distributed: 1 wolf, 4 citizens", type: "INFO" },
   { round: 1, timestamp: "18:30:10", text: "IronClad hints: \"\uB2EC\uCF64\uD574\"", type: "HINT" },
   { round: 1, timestamp: "18:30:12", text: "Voltex hints: \"\uAE38\uCABD\uD574\"", type: "HINT" },
   { round: 1, timestamp: "18:30:14", text: "Pyralis hints: \"\uB178\uB780\uC0C9\uC774\uC57C\"", type: "HINT" },
   { round: 1, timestamp: "18:30:16", text: "Spectra hints: \"\uC6D0\uC22D\uC774\uAC00 \uC88B\uC544\uD574\"", type: "HINT" },
   { round: 1, timestamp: "18:30:18", text: "NanoBot hints: \"\uBE68\uAC04\uC0C9\uC77C \uB54C\uB3C4 \uC788\uC5B4\"", type: "HINT" },
-  { round: 1, timestamp: "18:30:20", text: "CrabBot hints: \"\uAECD\uC9C8\uC774 \uC788\uC5B4\"", type: "HINT" },
-  { round: 2, timestamp: "18:31:01", text: "Hint Round 2 begins", type: "ROUND_END" },
+  { round: 2, timestamp: "18:31:01", text: "Suspect phase begins", type: "ROUND_END" },
   { round: 2, timestamp: "18:31:05", text: "IronClad hints: \"\uC544\uC0BD\uC544\uC0BD\uD574\"", type: "HINT" },
   { round: 2, timestamp: "18:31:07", text: "Voltex hints: \"\uB178\uB780\uC0C9\uC774\uC57C\"", type: "HINT" },
   { round: 2, timestamp: "18:31:09", text: "Pyralis hints: \"\uBD80\uB4DC\uB7EC\uC6CC\"", type: "HINT" },
@@ -122,7 +110,7 @@ const LEADERBOARD_DATA: MafiaLeaderboardEntry[] = [
 export default function MafiaCampPage() {
   const [round, setRound] = useState(2)
   const maxRound = 3
-  const [phase, setPhase] = useState<MafiaPhase>("HINT_ROUND_2")
+  const [phase, setPhase] = useState<MafiaPhase>("HINT")
   const [agents, setAgents] = useState<MafiaAgent[]>(INITIAL_AGENTS)
   const [logs, setLogs] = useState<MafiaLogEntry[]>(INITIAL_LOGS)
   const [flippedIds, setFlippedIds] = useState<Set<string>>(new Set())
@@ -212,9 +200,9 @@ export default function MafiaCampPage() {
   const nextPhase = () => {
     const phases: MafiaPhase[] = [
       "WORD_ASSIGNED",
-      "HINT_ROUND_1",
-      "HINT_ROUND_2",
-      "HINT_ROUND_3",
+      "HINT",
+      "SUSPECT",
+      "FINAL",
       "VOTE",
       "REVEAL",
     ]
@@ -240,16 +228,12 @@ export default function MafiaCampPage() {
       addLog("Words assigned to agents", "INFO")
     }
 
-    if (nextP === "HINT_ROUND_1") {
+    if (nextP === "HINT") {
       revealBubblesSequentially(0)
     }
 
-    if (nextP === "HINT_ROUND_2") {
-      revealBubblesSequentially(1)
-    }
-
-    if (nextP === "HINT_ROUND_3") {
-      revealBubblesSequentially(2)
+    if (nextP === "SUSPECT" || nextP === "FINAL") {
+      // No bubble animation for suspect/final in demo
     }
 
     if (nextP === "VOTE") {
@@ -316,10 +300,9 @@ export default function MafiaCampPage() {
     const tallies: VoteTally[] = [
       { agentName: "IronClad", votes: 3, voters: ["Voltex", "Pyralis", "Spectra"] },
       { agentName: "Voltex", votes: 1, voters: ["IronClad"] },
-      { agentName: "NanoBot", votes: 1, voters: ["CrabBot"] },
+      { agentName: "NanoBot", votes: 1, voters: ["Pyralis"] },
       { agentName: "Pyralis", votes: 0, voters: [] },
       { agentName: "Spectra", votes: 0, voters: [] },
-      { agentName: "CrabBot", votes: 1, voters: ["NanoBot"] },
     ]
     setVoteTallies(tallies)
     addLog("Vote phase - IronClad receives 3 votes!", "VOTE")
@@ -361,7 +344,7 @@ export default function MafiaCampPage() {
 
   const resetGame = () => {
     setRound(2)
-    setPhase("HINT_ROUND_2")
+    setPhase("HINT")
     setAgents(INITIAL_AGENTS)
     setLogs(INITIAL_LOGS)
     setFlippedIds(new Set())
@@ -506,7 +489,7 @@ export default function MafiaCampPage() {
             { label: "Next Round", action: () => {
               const newRound = Math.min(round + 1, maxRound)
               setRound(newRound)
-              setPhase("HINT_ROUND_1")
+              setPhase("HINT")
               setVisibleBubbles({})
               setShowVotePanel(false)
               addLog(`Round ${newRound} begins`, "ROUND_END")

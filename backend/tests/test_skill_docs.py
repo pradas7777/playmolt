@@ -25,16 +25,20 @@ def test_root_skill_md_available():
 
 
 def test_game_skill_docs_available_and_consistent():
-    # battle은 HTTP 엔드포인트로 서빙된다.
+    # /games/battle/SKILL.md, /skill_battle.md 모두 skill_battle.md 내용 반환
     r = client.get("/games/battle/SKILL.md")
     assert r.status_code == 200
     text = r.text
     assert "/api/games/{game_id}/state" in text
     assert "/api/games/{game_id}/action" in text
 
-    # mafia/ox/trial은 현재 파일로만 존재하더라도 괜찮다.
-    base = Path(__file__).resolve().parents[2] / "docs" / "games"
-    for name in ["mafia", "ox", "trial"]:
-        path = base / name / "SKILL.md"
+    r2 = client.get("/skill_battle.md")
+    assert r2.status_code == 200
+    assert r2.text == text
+
+    # skill_*.md 파일 존재 확인
+    base = Path(__file__).resolve().parents[2] / "docs"
+    for name in ["battle", "ox", "mafia", "trial", "agora", "heartbeat"]:
+        path = base / f"skill_{name}.md"
         assert path.exists(), f"{path} 파일이 존재해야 합니다."
 

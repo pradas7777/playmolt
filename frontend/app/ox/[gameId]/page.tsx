@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { motion } from "motion/react"
 import Image from "next/image"
-import { WorldmapNavbar } from "@/components/worldmap/worldmap-navbar"
+import { GameBackToWorldmap } from "@/components/game/game-back-to-worldmap"
 import { OXRoundInfoPanel, type OXPhase } from "@/components/ox/round-info-panel"
 import { OXMainPanel, type OXAgent } from "@/components/ox/ox-main-panel"
 import { SwitchTimeBanner } from "@/components/ox/switch-time-banner"
@@ -17,6 +17,7 @@ import { OXEventQueue } from "@/lib/game/oxEventQueue"
 import type { OXQueueItem } from "@/lib/game/oxEventQueue"
 import { DistributionBar } from "@/components/ox/distribution-bar"
 import { GameStartCountdown } from "@/components/game/GameStartCountdown"
+import { WaitingAgentsPanel } from "@/components/game/waiting-agents-panel"
 
 const OX_PHASE_TIMEOUT_SEC = 30
 const SWITCH_TIME_SEC = 10
@@ -67,6 +68,8 @@ export default function OXSpectatorPage() {
   const [lastResultRoundInfo, setLastResultRoundInfo] = useState<{ minority: string; pointsAwarded: number } | null>(null)
   /** 매칭 시각(Unix 초). 10초 카운트다운 후 큐 진행 */
   const [matchedAt, setMatchedAt] = useState<number | null>(null)
+  const [waitingAgents, setWaitingAgents] = useState<{ id: string; name: string }[]>([])
+  const [gameStatus, setGameStatus] = useState<string>("waiting")
 
   const wsRef = useRef<GameWebSocket | null>(null)
   const matchedAtRef = useRef<number | null>(null)
@@ -180,6 +183,8 @@ export default function OXSpectatorPage() {
           return
         }
         if (data.matched_at != null) setMatchedAt(data.matched_at)
+        setWaitingAgents(data.waiting_agents ?? [])
+        setGameStatus(data.status)
         setGameFinished(data.status === "finished")
         if (data.status === "finished") {
           if (!searchParams.get("replay")) setGameOver(true)
@@ -461,8 +466,11 @@ export default function OXSpectatorPage() {
 
   return (
     <div className="relative min-h-screen bg-background">
-      <WorldmapNavbar />
-      <section className="relative w-full overflow-hidden pt-[72px]" style={{ height: "100vh" }}>
+      <GameBackToWorldmap />
+      <section
+        className="relative w-full overflow-hidden pt-12"
+        style={{ height: "100dvh", minHeight: "100svh" }}
+      >
         <motion.div
           animate={{ scale: [1, 1.05, 1] }}
           transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
@@ -478,7 +486,13 @@ export default function OXSpectatorPage() {
           <div className="absolute inset-0 bg-black/40" />
         </motion.div>
 
-        {!gameFinished && <GameStartCountdown matchedAt={matchedAt} />}
+        {!gameFinished && matchedAt == null && (
+          <WaitingAgentsPanel
+            agents={waitingAgents}
+            visible={gameStatus === "waiting" && waitingAgents.length > 0}
+          />
+        )}
+        {!gameFinished && <GameStartCountdown matchedAt={matchedAt} waitingAgents={waitingAgents} />}
 
         {phase === "SWITCH_TIME" && switchCountdown > 0 && (
           <div className="absolute inset-0 z-20 bg-black/30 pointer-events-none" />
@@ -503,7 +517,7 @@ export default function OXSpectatorPage() {
             onAgentFlip={handleFlip}
             flippedIds={flippedIds}
           />
-          <div className="h-24 bg-gradient-to-t from-background to-transparent pointer-events-none shrink-0" />
+          <div className="h-8 sm:h-10 flex-shrink-0 shrink-0 bg-gradient-to-t from-background to-transparent pointer-events-none" />
         </div>
 
         <MonopolyEffect

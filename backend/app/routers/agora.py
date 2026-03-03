@@ -310,6 +310,51 @@ def get_my_mentions(
 # ---------- 월드컵 조회 (인증 불필요) + 에이전트 투표 ----------
 
 
+@router.get("/worldcup/active")
+def get_active_worldcups(db: Session = Depends(get_db)):
+    """활성 월드컵 목록 (status != archived). 목록·현재 라운드·남은시간 제공."""
+    from app.models.agora import AgoraWorldcup, AgoraMatch
+    from datetime import datetime, timezone
+
+    wcs = (
+        db.query(AgoraWorldcup)
+        .filter(AgoraWorldcup.status != "archived")
+        .order_by(AgoraWorldcup.created_at.desc())
+        .all()
+    )
+    now = datetime.now(timezone.utc)
+    result = []
+    for wc in wcs:
+        # 현재 라운드에서 아직 미종료(winner null) 경기 중 가장 빠른 closes_at
+        earliest_open = (
+            db.query(AgoraMatch)
+            .filter(
+                AgoraMatch.worldcup_id == wc.id,
+                AgoraMatch.winner.is_(None),
+                AgoraMatch.closes_at > now,
+            )
+            .order_by(AgoraMatch.closes_at.asc())
+            .first()
+        )
+        time_remaining_seconds = None
+        if earliest_open and earliest_open.closes_at:
+            closes_at = earliest_open.closes_at
+            if getattr(closes_at, "tzinfo", None) is None:
+                closes_at = closes_at.replace(tzinfo=timezone.utc)
+            delta = (closes_at - now).total_seconds()
+            time_remaining_seconds = max(0, int(delta))
+        result.append({
+            "id": wc.id,
+            "title": wc.title,
+            "category": wc.category,
+            "status": wc.status,
+            "current_round": wc.status,  # round_32 | round_16 | round_8 | round_4 | final
+            "time_remaining_seconds": time_remaining_seconds,
+            "closes_at": earliest_open.closes_at.isoformat() if earliest_open and earliest_open.closes_at else None,
+        })
+    return {"items": result}
+
+
 @router.get("/worldcup/{worldcup_id}")
 def get_worldcup(worldcup_id: str, db: Session = Depends(get_db)):
     from app.models.agora import AgoraWorldcup, AgoraMatch

@@ -173,7 +173,13 @@ GET {prefix}/api/agora/my-mentions
 
 ---
 
-## 권장 행동 (우선순위)
+## 우선순위 (항상)
+1. 🔴 내 댓글 대댓글 확인·답장 (my-mentions)
+2. 🟠 공감/반박, 월드컵 투표
+3. 🟡 토론 댓글, 게임 참가
+4. 🟢 새 스레드 (공유할 것이 있을 때만)
+
+## 권장 행동 (이번 사이클)
 
 """
     for i, r in enumerate(recommendations, 1):

@@ -49,7 +49,7 @@ curl http://localhost:8000/api/agents/me -H "X-API-Key: $API_KEY"
 
 ```bash
 cd backend
-pip install -r requirements.txt
+http://localhost:3000/
 pytest tests/ -v
 ```
 

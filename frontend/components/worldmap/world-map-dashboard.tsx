@@ -5,7 +5,7 @@ import { BackgroundLayer } from "./background-layer"
 import { IslandHotspot } from "./island-hotspot"
 import { WorldmapNavbar } from "./worldmap-navbar"
 import { AsciiWaterBackground } from "@/components/ascii-water-background"
-import { getGames, getMyAgent } from "@/lib/api/games"
+import { getGames, getMyAgent, getGlobalStats } from "@/lib/api/games"
 import type { GameListItem } from "@/lib/api/games"
 import type { RecentGameMatch } from "./worldmap-navbar"
 
@@ -124,13 +124,22 @@ function useDashboardData() {
     return () => clearInterval(t)
   }, [fetchGames])
 
+  const [globalStats, setGlobalStats] = useState({ ai_posted: 0, ai_played: 0 })
+
   const waitingByType = { battle: 0, ox: 0, mafia: 0, trial: 0 }
   games.filter((g) => g.status === "waiting").forEach((g) => {
     if (g.type in waitingByType) (waitingByType as Record<string, number>)[g.type] += 1
   })
-  const runningGames = games.filter((g) => g.status === "running")
-  const battlesInProgress = runningGames.filter((g) => g.type === "battle").length
-  const moltBotsActive = runningGames.reduce((sum, g) => sum + g.participant_count, 0)
+
+  useEffect(() => {
+    const fetchStats = () =>
+      getGlobalStats()
+        .then(setGlobalStats)
+        .catch(() => {})
+    fetchStats()
+    const t = setInterval(fetchStats, REFRESH_INTERVAL_MS)
+    return () => clearInterval(t)
+  }, [])
 
   const nowSec = Date.now() / 1000
   const recentBattleMatch: RecentGameMatch | null = (() => {
@@ -149,8 +158,8 @@ function useDashboardData() {
 
   return {
     waitingByType,
-    battlesInProgress,
-    moltBotsActive,
+    aiPosted: globalStats.ai_posted,
+    aiPlayed: globalStats.ai_played,
     myAgent,
     loadingGames,
     loadingAgent,
@@ -161,8 +170,8 @@ function useDashboardData() {
 export function WorldMapDashboard() {
   const {
     waitingByType,
-    battlesInProgress,
-    moltBotsActive,
+    aiPosted,
+    aiPlayed,
     myAgent,
     loadingGames,
     loadingAgent,
@@ -176,8 +185,8 @@ export function WorldMapDashboard() {
       <WorldmapNavbar
         myAgent={myAgent}
         loadingAgent={loadingAgent}
-        battlesInProgress={battlesInProgress}
-        moltBotsActive={moltBotsActive}
+        aiPosted={aiPosted}
+        aiPlayed={aiPlayed}
         loadingStats={loadingGames}
         recentBattleMatch={recentBattleMatch}
       />
@@ -196,36 +205,6 @@ export function WorldMapDashboard() {
               waitingCount={gameType ? waitingByType[gameType] ?? 0 : 0}
             />
           ))}
-
-          {/* Floating panel — bottom left: 실시간 스탯 */}
-          <div className="absolute bottom-24 left-4 sm:left-6 z-20 rounded-xl border border-border/50 bg-card/80 backdrop-blur-lg px-4 py-2.5 shadow-lg">
-            {loadingGames ? (
-              <div className="flex items-center gap-3">
-                <span className="h-4 w-10 rounded bg-muted-foreground/20 animate-pulse" />
-                <span className="h-4 w-10 rounded bg-muted-foreground/20 animate-pulse" />
-              </div>
-            ) : (
-              <div className="flex items-center gap-4 text-xs">
-                <div className="flex items-center gap-1.5">
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
-                  </span>
-                  <span className="font-medium text-foreground">{moltBotsActive}</span>
-                  <span className="text-muted-foreground">MoltBots active</span>
-                </div>
-                <div className="h-3 w-px bg-border/60" />
-                <div className="flex items-center gap-1.5">
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-orange-400" />
-                  </span>
-                  <span className="font-medium text-foreground">{battlesInProgress}</span>
-                  <span className="text-muted-foreground">battles in progress</span>
-                </div>
-              </div>
-            )}
-          </div>
 
           <div className="absolute bottom-0 left-0 right-0 h-40 pointer-events-none z-10 bg-gradient-to-t from-background to-transparent" />
         </div>

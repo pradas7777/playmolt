@@ -70,10 +70,10 @@ export function mapTrialAgentsToUI(
       role = (["JUROR_1", "JUROR_2", "JUROR_3"] as const)[Math.min(idx, 2)]
     }
     if (!role) role = "JUROR_1"
-    const name =
-      (a as TrialAgentState & { name?: string }).name ??
-      agentsMeta?.[id]?.name ??
-      id
+    const rawName = (a as TrialAgentState & { name?: string }).name ?? agentsMeta?.[id]?.name ?? id
+    const name = role.startsWith("JUROR_")
+      ? `배심원${role.replace("JUROR_", "")}`
+      : rawName
     return {
       id,
       name,
@@ -157,25 +157,21 @@ export function mapTrialStateToUI(
   }
 }
 
-/** trial_state.history → 터미널 로그용 TrialLogEntry[] (새 플로우: phase + moves / votes) */
+const timestampPlaceholder = ""
+
+/** trial_state.history → 터미널 로그용 TrialLogEntry[] (새 플로우: phase + moves / votes). timestamp는 발언 노출 시점에 설정됨. */
 export function mapTrialHistoryToLogs(
   history: TrialHistoryEntry[] | undefined,
   agentsMeta: Record<string, { name: string }> = {}
 ): TrialLogEntry[] {
   if (!history?.length) return []
   const entries: TrialLogEntry[] = []
-  const ts = () =>
-    new Date().toLocaleTimeString("en-GB", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    })
   for (const h of history) {
     const phaseLabel = (h.phase ?? "").replace(/_/g, " ")
     if (h.phase && !h.moves?.length && !h.votes?.length && !h.verdict) {
       entries.push({
         round: 1,
-        timestamp: ts(),
+        timestamp: timestampPlaceholder,
         text: `Phase: ${phaseLabel}`,
         type: "PHASE_CHANGE",
       })
@@ -190,7 +186,7 @@ export function mapTrialHistoryToLogs(
         const claim = (m.claim ?? "").trim() || "(변론)"
         entries.push({
           round: 1,
-          timestamp: ts(),
+          timestamp: timestampPlaceholder,
           text: `${name}: ${claim}`,
           type,
         })
@@ -204,7 +200,7 @@ export function mapTrialHistoryToLogs(
         const question = (v.question ?? "").trim()
         entries.push({
           round: 1,
-          timestamp: ts(),
+          timestamp: timestampPlaceholder,
           text: `${name} votes: ${verdictText}${reason ? ` — ${reason}` : ""}${question ? ` | Q: ${question}` : ""}`,
           type: "JUROR",
         })
@@ -213,7 +209,7 @@ export function mapTrialHistoryToLogs(
     if (h.question_summary) {
       entries.push({
         round: 1,
-        timestamp: ts(),
+        timestamp: timestampPlaceholder,
         text: `Judge: ${h.question_summary}`,
         type: "INFO",
       })
@@ -222,7 +218,7 @@ export function mapTrialHistoryToLogs(
       const isGuilty = h.verdict.toUpperCase() === "GUILTY"
       entries.push({
         round: 1,
-        timestamp: ts(),
+        timestamp: timestampPlaceholder,
         text: `VERDICT: ${h.verdict.toUpperCase()}`,
         type: isGuilty ? "VERDICT_GUILTY" : "VERDICT_NOT_GUILTY",
       })
@@ -274,6 +270,28 @@ export function getBubbleSequenceFromHistory(
     }
   }
   return steps
+}
+
+/** verdict 단계용: jury_final votes가 있는 마지막 history 항목에서 말풍선 순서 추출 */
+export function getJuryVerdictBubblesFromHistory(
+  history: TrialHistoryEntry[] | undefined
+): TrialBubbleStep[] {
+  if (!history?.length) return []
+  for (let i = history.length - 1; i >= 0; i--) {
+    const h = history[i]
+    if (h.votes?.length) {
+      const steps: TrialBubbleStep[] = []
+      for (const v of h.votes) {
+        const verdictText = v.verdict === "GUILTY" || v.verdict === "guilty" ? "GUILTY" : "NOT GUILTY"
+        const parts = [verdictText]
+        if ((v.reason ?? "").trim()) parts.push((v.reason ?? "").trim())
+        if ((v.question ?? "").trim()) parts.push(`Q: ${(v.question ?? "").trim()}`)
+        steps.push({ agentId: v.agent_id, text: parts.join(" — ") })
+      }
+      return steps
+    }
+  }
+  return []
 }
 
 /** 큐에서 해당 state 재생 시 대기할 말풍선 개수(지연 계산용) */

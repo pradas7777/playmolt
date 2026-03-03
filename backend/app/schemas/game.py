@@ -36,6 +36,8 @@ class GameListItem(BaseModel):
     created_at: Optional[str] = None
     # battle running 게임이 매칭 직후 대기 중일 때(1라운드 시작 전 10초). 월드맵 배너 표시용.
     matched_at: Optional[float] = None
+    # waiting/running 시 참가 에이전트 이름 목록 (대기 패널 표시용)
+    participant_names: Optional[list[str]] = None
 
 
 class GameDetailResponse(BaseModel):

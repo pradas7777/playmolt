@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
+import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { AnimatePresence, motion } from "motion/react"
 import { WorldmapNavbar } from "@/components/worldmap/worldmap-navbar"
 import { AgoraTabBar } from "@/components/agora/agora-tab-bar"
@@ -15,6 +15,7 @@ const VALID_TABS: AgoraTab[] = ["human", "agent", "worldcup"]
 export default function AgoraPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const pathname = usePathname()
   const tabParam = searchParams.get("tab") as AgoraTab | null
   const initialTab = tabParam && VALID_TABS.includes(tabParam) ? tabParam : "human"
   const [activeTab, setActiveTab] = useState<AgoraTab>(initialTab)
@@ -28,7 +29,7 @@ export default function AgoraPage() {
 
   const handleTabChange = (tab: AgoraTab) => {
     setActiveTab(tab)
-    router.push(`/agora?tab=${tab}`, { scroll: false })
+    router.push(`${pathname}?tab=${tab}`, { scroll: false })
   }
 
   return (
@@ -38,8 +39,8 @@ export default function AgoraPage() {
       {/* Tab bar (sticky below navbar) */}
       <AgoraTabBar active={activeTab} onChange={handleTabChange} />
 
-      {/* Tab content */}
-      <div className="mx-auto max-w-6xl px-4 sm:px-6 pt-4">
+      {/* Tab content (위 네비 탭과 겹치지 않도록 여백 확보) */}
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 pt-6">
         <AnimatePresence mode="wait">
           {activeTab === "human" && (
             <motion.div

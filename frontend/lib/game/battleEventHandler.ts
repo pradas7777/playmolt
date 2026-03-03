@@ -221,10 +221,14 @@ export async function handleBattleEvent(
       ctx.setRound(() => event.payload.round + 1)
       ctx.setDefending(() => new Set())
       if (event.payload.round >= 8) ctx.setGasActive(true)
-      ctx.setTerminalLogs((prev) => [
-        ...prev,
-        toBattleLogEntry(event.payload.round, `라운드 ${event.payload.round} 종료`, "ROUND_END"),
-      ])
+      // 라운드 종료 로그 1번만 추가 (중복 round_end 이벤트 방지)
+      const roundNum = event.payload.round
+      const roundEndText = `라운드 ${roundNum} 종료`
+      ctx.setTerminalLogs((prev) => {
+        const last = prev[prev.length - 1]
+        if (last?.type === "ROUND_END" && last.text === roundEndText) return prev
+        return [...prev, toBattleLogEntry(roundNum, roundEndText, "ROUND_END")]
+      })
       break
     }
 
