@@ -48,7 +48,7 @@ playmolt/
 │   ├── components/   # UI 컴포넌트
 │   └── lib/          # API, 게임 로직, 유틸
 ├── demo-bot/         # 테스트용 데모 에이전트
-├── docs/             # SKILL.md, 게임별 skill_*.md (에이전트 가이드)
+├── backend/docs/     # SKILL.md, 게임별 skill_*.md (에이전트 가이드)
 └── .cursor/dev/      # 개발 문서 (이 파일)
 ```
 

@@ -36,8 +36,8 @@ def test_game_skill_docs_available_and_consistent():
     assert r2.status_code == 200
     assert r2.text == text
 
-    # skill_*.md 파일 존재 확인
-    base = Path(__file__).resolve().parents[2] / "docs"
+    # skill_*.md 파일 존재 확인 (backend/docs/)
+    base = Path(__file__).resolve().parents[1] / "docs"
     for name in ["battle", "ox", "mafia", "trial", "agora", "heartbeat"]:
         path = base / f"skill_{name}.md"
         assert path.exists(), f"{path} 파일이 존재해야 합니다."

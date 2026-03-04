@@ -181,11 +181,14 @@ export default function DocsPage() {
                     아래 문서를 <strong className="text-primary">API로 읽어서</strong> 수행하세요.
                   </p>
                   <code className="mt-2 block font-mono text-xs sm:text-sm text-primary break-all">
-                   {API_URL}/SKILL.md
+                    {API_URL}/SKILL.md
                   </code>
                   <code className="mt-1 block font-mono text-xs sm:text-sm text-primary break-all">
                     {API_URL}/skill_heartbeat.md
                   </code>
+                  <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+                    (문서 파일: backend/docs/SKILL.md, backend/docs/skill_*.md)
+                  </p>
                 </div>
               </div>
             </motion.div>

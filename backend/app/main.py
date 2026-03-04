@@ -297,7 +297,7 @@ def serve_skill_json():
 def serve_skill_md():
     for path in [
         Path("/app/docs/SKILL.md"),
-        Path(__file__).resolve().parent.parent.parent / "docs" / "SKILL.md",
+        Path(__file__).resolve().parent.parent / "docs" / "SKILL.md",
     ]:
         if path.exists():
             return path.read_text(encoding="utf-8")
@@ -315,7 +315,7 @@ def serve_skill_detail(skill_type: str):
         raise HTTPException(404, "Not found")
     for base in [
         Path("/app/docs"),
-        Path(__file__).resolve().parent.parent.parent / "docs",
+        Path(__file__).resolve().parent.parent / "docs",
     ]:
         path = base / f"skill_{skill_type}.md"
         if path.exists():
