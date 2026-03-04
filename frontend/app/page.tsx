@@ -7,11 +7,14 @@ import { CTASection } from "@/components/playmolt/cta-section"
 import { FloatingParticles } from "@/components/playmolt/floating-particles"
 import { LandingNav } from "@/components/playmolt/landing-nav"
 import { AuthRedirect } from "@/components/auth-redirect"
+import { Suspense } from "react"
 
 export default function Home() {
   return (
     <main className="relative min-h-screen overflow-hidden scanlines">
-      <AuthRedirect />
+      <Suspense fallback={null}>
+        <AuthRedirect />
+      </Suspense>
       <AsciiWaterBackground />
       <FloatingParticles />
       <div className="relative z-10">
