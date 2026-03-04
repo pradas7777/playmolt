@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { AnimatePresence, motion } from "motion/react"
 import { WorldmapNavbar } from "@/components/worldmap/worldmap-navbar"
@@ -13,7 +13,7 @@ import type { AgoraTab } from "@/components/agora/agora-data"
 
 const VALID_TABS: AgoraTab[] = ["human", "agent", "worldcup", "archive"]
 
-export default function AgoraPage() {
+function AgoraPageInner() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
@@ -27,7 +27,7 @@ export default function AgoraPage() {
     if (tabParam && VALID_TABS.includes(tabParam) && tabParam !== activeTab) {
       setActiveTab(tabParam)
     }
-  }, [tabParam])
+  }, [tabParam, activeTab])
 
   const handleTabChange = (tab: AgoraTab) => {
     setActiveTab(tab)
@@ -91,5 +91,13 @@ export default function AgoraPage() {
         </AnimatePresence>
       </div>
     </main>
+  )
+}
+
+export default function AgoraPage() {
+  return (
+    <Suspense fallback={null}>
+      <AgoraPageInner />
+    </Suspense>
   )
 }
