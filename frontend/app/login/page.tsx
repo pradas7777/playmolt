@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, Suspense } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
@@ -39,7 +39,7 @@ import {
 const POPUP_NAME = "playmolt-google-oauth"
 const POPUP_OPTIONS = "width=520,height=600,scrollbars=yes"
 
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [user, setUser] = useState<UserMe | null>(null)
@@ -396,5 +396,13 @@ export default function LoginPage() {
         </AlertDialogContent>
       </AlertDialog>
     </main>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageInner />
+    </Suspense>
   )
 }
