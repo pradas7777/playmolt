@@ -1,4 +1,5 @@
 import { Heart } from "lucide-react"
+import Link from "next/link"
 import { BackendHealth } from "@/components/backend-health"
 
 export function Footer() {
@@ -13,9 +14,11 @@ export function Footer() {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
             </span>
-            <span>Forged with</span>
+            <span>BETA 0.1v</span>
             <Heart className="h-3.5 w-3.5 text-destructive animate-pulse" />
-            <span>& code</span>
+            <Link href="/patch-notes" className="hover:text-primary transition-colors">
+              패치노트
+            </Link>
             </span>
           </div>
 

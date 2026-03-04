@@ -20,6 +20,9 @@ export interface AgoraTopicItem {
   side_a: string | null
   side_b: string | null
   author_type: string
+  author_id?: string
+  author_name?: string | null
+  author_total_points?: number | null
   status: string
   temperature: number
   expires_at: string | null
@@ -29,6 +32,8 @@ export interface AgoraTopicItem {
 export interface AgoraCommentItem {
   id: string
   agent_id: string
+  agent_name?: string | null
+  agent_total_points?: number | null
   depth: number
   side: string | null
   text: string
@@ -47,6 +52,8 @@ export interface AgoraTopicDetail {
   side_b: string | null
   author_type: string
   author_id: string
+  author_name?: string | null
+  author_total_points?: number | null
   status: string
   temperature: number
   expires_at: string | null
@@ -72,12 +79,14 @@ export interface TopicUI {
   createdAt: string
   topComment?: string
   board: "human" | "agent"
+  authorId?: string
   authorName?: string
   authorThumb?: string
 }
 
 export interface CommentUI {
   id: string
+  authorId: string
   authorName: string
   authorThumb: string
   text: string
@@ -87,7 +96,75 @@ export interface CommentUI {
   replies?: CommentUI[]
 }
 
-const DEFAULT_AVATAR = "/images/agent_profile_prop.jpg"
+const AGENT_AVATARS = [
+  "/images/cards/battle_game_prop.jpg",
+  "/images/cards/ox_game_prop.jpg",
+  "/images/cards/mafia_game_prop.jpg",
+  "/images/cards/trial_game_prop.jpg",
+  "/images/cards/agent_profile_prop.jpg",
+]
+
+/** 포인트 구간별 아바타 (1~10) */
+const AVATAR_BY_TIER = [
+  "/images/avatars/avatar-1.png", // 0 ~ 150
+  "/images/avatars/avatar-2.png", // 150 ~ 350
+  "/images/avatars/avatar-3.png", // 350 ~ 650
+  "/images/avatars/avatar-4.png", // 650 ~ 1050
+  "/images/avatars/avatar-5.png", // 1050 ~ 1600
+  "/images/avatars/avatar-6.png", // 1600 ~ 2300
+  "/images/avatars/avatar-7.png", // 2300 ~ 3150
+  "/images/avatars/avatar-8.png", // 3150 ~ 4100
+  "/images/avatars/avatar-9.png", // 4100 ~ 4800
+  "/images/avatars/avatar-10.png", // 4800 ~
+] as const
+
+const POINT_THRESHOLDS = [0, 150, 350, 650, 1050, 1600, 2300, 3150, 4100, 4800] as const
+
+/** 포인트샵·설명용 티어 정보 (1~10) */
+export const AVATAR_TIERS = [
+  { tier: 1, min: 0, max: 150, src: AVATAR_BY_TIER[0] },
+  { tier: 2, min: 150, max: 350, src: AVATAR_BY_TIER[1] },
+  { tier: 3, min: 350, max: 650, src: AVATAR_BY_TIER[2] },
+  { tier: 4, min: 650, max: 1050, src: AVATAR_BY_TIER[3] },
+  { tier: 5, min: 1050, max: 1600, src: AVATAR_BY_TIER[4] },
+  { tier: 6, min: 1600, max: 2300, src: AVATAR_BY_TIER[5] },
+  { tier: 7, min: 2300, max: 3150, src: AVATAR_BY_TIER[6] },
+  { tier: 8, min: 3150, max: 4100, src: AVATAR_BY_TIER[7] },
+  { tier: 9, min: 4100, max: 4800, src: AVATAR_BY_TIER[8] },
+  { tier: 10, min: 4800, max: null, src: AVATAR_BY_TIER[9] },
+] as const
+
+/** 포인트 → 티어 (1~10) */
+function tierFromPoints(points: number): number {
+  if (points < 0) return 1
+  for (let i = POINT_THRESHOLDS.length - 1; i >= 0; i--) {
+    if (points >= POINT_THRESHOLDS[i]) return i + 1
+  }
+  return 1
+}
+
+/** 에이전트 포인트 → 포인트 구간별 아바타 (1~10) */
+export function agentThumbFromPoints(totalPoints: number): string {
+  const tier = tierFromPoints(totalPoints)
+  return AVATAR_BY_TIER[Math.min(tier - 1, AVATAR_BY_TIER.length - 1)]
+}
+
+/** 인간 작성자 통일 표시 */
+export const HUMAN_AUTHOR = {
+  name: "휴먼",
+  thumb: "/images/plankton-mascot.png",
+} as const
+
+/** 에이전트 ID → 일관된 아바타 이미지 (에이전트당 1개, avatar-1~10) */
+export function agentThumbFromId(agentId: string): string {
+  let hash = 0
+  for (let i = 0; i < agentId.length; i++) {
+    hash = (hash << 5) - hash + agentId.charCodeAt(i)
+    hash |= 0
+  }
+  const idx = Math.abs(hash) % AVATAR_BY_TIER.length
+  return AVATAR_BY_TIER[idx]
+}
 
 function formatCreatedAt(iso: string | null): string {
   if (!iso) return ""
@@ -105,6 +182,15 @@ function formatCreatedAt(iso: string | null): string {
 
 /** API 토픽 목록 항목 → UI Topic */
 export function topicItemToUI(t: AgoraTopicItem): TopicUI {
+  const isHuman = t.author_type === "human"
+  const agentThumb =
+    isHuman
+      ? HUMAN_AUTHOR.thumb
+      : t.author_total_points != null
+        ? agentThumbFromPoints(t.author_total_points)
+        : t.author_id
+          ? agentThumbFromId(t.author_id)
+          : undefined
   return {
     id: t.id,
     title: t.title,
@@ -115,15 +201,23 @@ export function topicItemToUI(t: AgoraTopicItem): TopicUI {
     commentCount: t.temperature,
     createdAt: formatCreatedAt(t.created_at),
     board: t.board as "human" | "agent",
+    authorId: t.author_id,
+    authorName: isHuman ? HUMAN_AUTHOR.name : (t.author_name ?? undefined),
+    authorThumb: agentThumb,
   }
 }
 
-/** API 댓글 → UI Comment (agent_id를 authorName 대신 사용) */
+/** API 댓글 → UI Comment (agent_name 사용, total_points 또는 agent_id로 프로필 이미지 매핑) */
 export function commentItemToUI(c: AgoraCommentItem): CommentUI {
+  const thumb =
+    c.agent_total_points != null
+      ? agentThumbFromPoints(c.agent_total_points)
+      : agentThumbFromId(c.agent_id)
   return {
     id: c.id,
-    authorName: c.agent_id.slice(0, 8) + "...",
-    authorThumb: DEFAULT_AVATAR,
+    authorId: c.agent_id,
+    authorName: c.agent_name ?? c.agent_id,
+    authorThumb: thumb,
     text: c.text,
     side: (c.side as "A" | "B") ?? undefined,
     agreeCount: c.agree_count,
@@ -134,6 +228,15 @@ export function commentItemToUI(c: AgoraCommentItem): CommentUI {
 
 /** API 상세 → UI Topic + CommentUI[] */
 export function topicDetailToUI(d: AgoraTopicDetail): { topic: TopicUI; comments: CommentUI[] } {
+  const isHuman = d.author_type === "human"
+  const topicThumb =
+    isHuman
+      ? HUMAN_AUTHOR.thumb
+      : d.author_total_points != null
+        ? agentThumbFromPoints(d.author_total_points)
+        : d.author_id
+          ? agentThumbFromId(d.author_id)
+          : undefined
   const topic: TopicUI = {
     id: d.id,
     title: d.title,
@@ -144,6 +247,9 @@ export function topicDetailToUI(d: AgoraTopicDetail): { topic: TopicUI; comments
     commentCount: d.comments?.length ?? 0,
     createdAt: formatCreatedAt(d.created_at),
     board: d.board as "human" | "agent",
+    authorId: d.author_id,
+    authorName: isHuman ? HUMAN_AUTHOR.name : (d.author_name ?? undefined),
+    authorThumb: topicThumb,
   }
   const comments = (d.comments ?? []).map(commentItemToUI)
   return { topic, comments }
@@ -254,6 +360,42 @@ export async function createWorldcupAgent(
 }
 
 // ---------- 에이전트 전용 (X-API-Key) ----------
+
+export interface AgentAgoraContent {
+  topics: {
+    id: string
+    board: string
+    category: string
+    title: string
+    author_id: string
+    author_name?: string
+    temperature: number
+    created_at: string | null
+  }[]
+  comments: {
+    id: string
+    topic_id: string
+    topic_title: string
+    text: string
+    side: string | null
+    depth: number
+    agree_count: number
+    disagree_count: number
+    created_at: string | null
+  }[]
+}
+
+/** 내 에이전트가 작성한 토픽·댓글 목록 (X-API-Key) */
+export async function getMyAgoraContent(apiKey: string): Promise<AgentAgoraContent> {
+  const res = await fetch(`${AGORA_PREFIX}/me/content`, {
+    headers: { "X-API-Key": apiKey },
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || "내 아고라 콘텐츠 조회 실패")
+  }
+  return res.json() as Promise<AgentAgoraContent>
+}
 
 export async function createTopicAgent(
   body: { category: string; title: string },
@@ -388,6 +530,10 @@ export async function getWorldcup(worldcupId: string): Promise<{
   category: string
   title: string
   status: string
+  author_type?: string
+  author_id?: string | null
+  author_name?: string | null
+  author_total_points?: number | null
   brackets: AgoraWorldcupBracketMatch[]
   created_at: string | null
 }> {

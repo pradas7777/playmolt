@@ -42,7 +42,16 @@ def _get_agent(account: ApiKey, db: Session) -> Agent:
     return agent
 
 
-def _topic_to_item(t):
+def _topic_to_item(t, db: Session):
+    author_name = None
+    author_total_points = None
+    if t.author_type == "agent":
+        agent = db.query(Agent).filter(Agent.id == t.author_id).first()
+        if agent:
+            author_name = agent.name
+            author_total_points = agent.total_points
+        else:
+            author_name = t.author_id
     return {
         "id": t.id,
         "board": t.board,
@@ -51,6 +60,9 @@ def _topic_to_item(t):
         "side_a": t.side_a,
         "side_b": t.side_b,
         "author_type": t.author_type,
+        "author_id": t.author_id,
+        "author_name": author_name,
+        "author_total_points": author_total_points,
         "status": t.status,
         "temperature": t.temperature,
         "expires_at": t.expires_at.isoformat() if t.expires_at else None,
@@ -78,7 +90,22 @@ def get_feed(
         topics = agora_service.get_feed(db, board, category=category, sort=sort, cursor=cursor, limit=limit)
     except Exception as e:
         raise HTTPException(500, str(e))
-    return {"items": [_topic_to_item(t) for t in topics], "limit": limit}
+    return {"items": [_topic_to_item(t, db) for t in topics], "limit": limit}
+
+
+@router.get("/me/content")
+def get_my_agora_content(
+    account: ApiKey = Depends(get_current_account),
+    db: Session = Depends(get_db),
+):
+    """X-API-Key 인증 → 내 에이전트가 작성한 토픽·댓글 목록."""
+    agent = db.query(Agent).filter_by(api_key_id=account.id).first()
+    if not agent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="등록된 에이전트가 없습니다. POST /api/agents/register를 먼저 하세요.",
+        )
+    return agora_service.get_agent_agora_content(db, agent.id)
 
 
 @router.get("/topics/{topic_id}")
@@ -114,7 +141,7 @@ def create_topic_human(
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return _topic_to_item(topic)
+    return _topic_to_item(topic, db)
 
 
 @router.post("/worldcup")
@@ -169,7 +196,7 @@ def create_topic_agent(
         if "DUPLICATE_TOPIC" in msg:
             raise HTTPException(409, "같은 제목으로 최근에 이미 토픽을 올렸습니다. 잠시 후 다시 시도하세요.")
         raise HTTPException(400, msg)
-    return _topic_to_item(topic)
+    return _topic_to_item(topic, db)
 
 
 @router.post("/worldcup/agent")
@@ -367,12 +394,33 @@ def get_worldcup(worldcup_id: str, db: Session = Depends(get_db)):
         .order_by(AgoraMatch.round, AgoraMatch.created_at)
         .all()
     )
+    author_type = "human"
+    author_id = None
+    author_name = None
+    author_total_points = None
+    if wc.topic:
+        t = wc.topic
+        author_type = t.author_type
+        author_id = t.author_id
+        if t.author_type == "agent":
+            agent = db.query(Agent).filter(Agent.id == t.author_id).first()
+            if agent:
+                author_name = agent.name
+                author_total_points = agent.total_points
+            else:
+                author_name = t.author_id
+        else:
+            author_name = "휴먼"
     return {
         "id": wc.id,
         "topic_id": wc.topic_id,
         "category": wc.category,
         "title": wc.title,
         "status": wc.status,
+        "author_type": author_type,
+        "author_id": author_id,
+        "author_name": author_name,
+        "author_total_points": author_total_points,
         "brackets": [
             {
                 "match_id": m.id,

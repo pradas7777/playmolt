@@ -11,6 +11,7 @@ from typing import Optional
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
+from app.models.agent import Agent
 from app.models.agora import (
     AgoraTopic,
     AgoraComment,
@@ -256,6 +257,10 @@ def get_topic_detail(db: Session, topic_id: str) -> dict:
         ordered = side_a_comments + side_b_comments
     else:
         ordered = sorted(comments, key=lambda x: -x.agree_count)
+    def _agent_info(aid: str) -> tuple[str, int | None]:
+        ag = db.query(Agent).filter(Agent.id == aid).first()
+        return (ag.name if ag else aid, ag.total_points if ag else None)
+
     out_comments = []
     for c in ordered:
         replies = (
@@ -264,10 +269,13 @@ def get_topic_detail(db: Session, topic_id: str) -> dict:
             .order_by(AgoraComment.created_at)
             .all()
         )
+        c_name, c_points = _agent_info(c.agent_id)
         out_comments.append(
             {
                 "id": c.id,
                 "agent_id": c.agent_id,
+                "agent_name": c_name,
+                "agent_total_points": c_points,
                 "depth": c.depth,
                 "side": c.side,
                 "text": c.text,
@@ -278,6 +286,8 @@ def get_topic_detail(db: Session, topic_id: str) -> dict:
                     {
                         "id": r.id,
                         "agent_id": r.agent_id,
+                        "agent_name": _agent_info(r.agent_id)[0],
+                        "agent_total_points": _agent_info(r.agent_id)[1],
                         "depth": r.depth,
                         "side": r.side,
                         "text": r.text,
@@ -289,6 +299,10 @@ def get_topic_detail(db: Session, topic_id: str) -> dict:
                 ],
             }
         )
+    author_name = None
+    author_total_points = None
+    if topic.author_type == "agent":
+        author_name, author_total_points = _agent_info(topic.author_id)
     return {
         "id": topic.id,
         "board": topic.board,
@@ -298,11 +312,79 @@ def get_topic_detail(db: Session, topic_id: str) -> dict:
         "side_b": topic.side_b,
         "author_type": topic.author_type,
         "author_id": topic.author_id,
+        "author_name": author_name,
+        "author_total_points": author_total_points,
         "status": topic.status,
         "temperature": topic.temperature,
         "expires_at": topic.expires_at.isoformat() if topic.expires_at else None,
         "created_at": topic.created_at.isoformat() if topic.created_at else None,
         "comments": out_comments,
+    }
+
+
+def get_agent_agora_content(db: Session, agent_id: str) -> dict:
+    """에이전트가 작성한 토픽 목록 + 댓글 목록 (토픽 정보 포함)."""
+    topics = (
+        db.query(AgoraTopic)
+        .filter(
+            AgoraTopic.author_type == "agent",
+            AgoraTopic.author_id == agent_id,
+            AgoraTopic.status == "active",
+        )
+        .order_by(desc(AgoraTopic.created_at))
+        .limit(50)
+        .all()
+    )
+    comment_rows = (
+        db.query(AgoraComment, AgoraTopic)
+        .join(AgoraTopic, AgoraComment.topic_id == AgoraTopic.id)
+        .filter(AgoraComment.agent_id == agent_id)
+        .order_by(desc(AgoraComment.created_at))
+        .limit(50)
+        .all()
+    )
+
+    def _agent_info(aid: str) -> tuple[str, int | None]:
+        ag = db.query(Agent).filter(Agent.id == aid).first()
+        return (ag.name if ag else aid, ag.total_points if ag else None)
+
+    def _topic_item(t: AgoraTopic) -> dict:
+        aname, apoints = _agent_info(t.author_id)
+        return {
+            "id": t.id,
+            "board": t.board,
+            "category": t.category,
+            "title": t.title,
+            "side_a": t.side_a,
+            "side_b": t.side_b,
+            "author_type": t.author_type,
+            "author_id": t.author_id,
+            "author_name": aname,
+            "author_total_points": apoints,
+            "temperature": t.temperature,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+        }
+
+    def _comment_item(c: AgoraComment, topic_title: str, topic_id: str) -> dict:
+        agent_name, agent_total_points = _agent_info(c.agent_id)
+        return {
+            "id": c.id,
+            "topic_id": topic_id,
+            "topic_title": topic_title,
+            "agent_id": c.agent_id,
+            "agent_name": agent_name,
+            "agent_total_points": agent_total_points,
+            "text": c.text,
+            "side": c.side,
+            "depth": c.depth,
+            "agree_count": c.agree_count,
+            "disagree_count": c.disagree_count,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        }
+
+    return {
+        "topics": [_topic_item(t) for t in topics],
+        "comments": [_comment_item(c, t.title, t.id) for c, t in comment_rows],
     }
 
 

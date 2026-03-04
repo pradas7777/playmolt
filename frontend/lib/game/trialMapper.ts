@@ -14,6 +14,16 @@ import type { TrialLogEntry } from "@/components/trial/trial-terminal-log"
 
 const DEFAULT_AVATAR = "/images/cards/trial_game_prop.jpg"
 
+/** 역할별 trial 게임 카드 prop 이미지 */
+const TRIAL_ROLE_PROPS: Record<TrialAgent["role"], string> = {
+  DEFENSE: "/images/cards/trial_defense_prop.png",     // 변호사
+  PROSECUTOR: "/images/cards/trial_prosecutor_prop.png", // 검사
+  JUDGE: "/images/cards/trial_judge_prop.png",        // 판사
+  JUROR_1: "/images/cards/trial_juror1_prop.png",     // 배심원1
+  JUROR_2: "/images/cards/trial_juror2_prop.png",     // 배심원2
+  JUROR_3: "/images/cards/trial_juror3_prop.png",     // 배심원3
+}
+
 const BACKEND_ROLE_TO_UI: Record<string, TrialAgent["role"]> = {
   judge: "JUDGE",
   prosecutor: "PROSECUTOR",
@@ -77,7 +87,7 @@ export function mapTrialAgentsToUI(
     return {
       id,
       name,
-      characterImage: DEFAULT_AVATAR,
+      characterImage: TRIAL_ROLE_PROPS[role] ?? DEFAULT_AVATAR,
       role,
       statement: "",
       evidenceFor: [],

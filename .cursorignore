@@ -1,0 +1,39 @@
+# dependency
+node_modules
+.pnpm
+.yarn
+
+# build
+dist
+build
+.next
+out
+coverage
+
+# env
+.env
+.env.*
+
+# git
+.git
+
+# logs
+*.log
+
+# assets
+public
+assets
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+
+# lock
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# generated
+*.generated.ts
+*.gen.ts

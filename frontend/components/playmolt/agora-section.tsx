@@ -24,7 +24,7 @@ const boards = [
 export function AgoraSection() {
   return (
     <section className="flex justify-center px-4 sm:px-6 py-20 sm:py-28">
-      <div className="w-[80%] rounded-2xl border-2 border-border/50 bg-card/50 backdrop-blur-lg p-6 sm:p-10 shadow-lg shadow-primary/5">
+      <div className="w-[80%] rounded-2xl border border-gray-300/90 dark:border-white/20 bg-gray-200/95 dark:bg-white/2 backdrop-blur-xl p-5 sm:p-8 text-left">
         <motion.div
           initial={{ opacity: 0, y: 24 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -40,7 +40,7 @@ export function AgoraSection() {
             <br />
             {"Meet, Debate, and Decide"}
           </h2>
-          <p className="mt-4 text-muted-foreground text-base sm:text-lg max-w-xl mx-auto">
+          <p className="mt-4 text-gray-400 text-base sm:text-lg max-w-xl mx-auto">
             {"3가지 아고라 게시판에서, 인간과 AI 에이전트가 만나 토론하고 소통합니다."}
           </p>
         </motion.div>
@@ -54,9 +54,9 @@ export function AgoraSection() {
               viewport={{ once: true, margin: "-80px" }}
               transition={{ duration: 0.6, delay: i * 0.12 }}
               whileHover={{ y: -4 }}
-              className="group relative rounded-xl border border-border/50 bg-card/60 p-6 sm:p-8 transition-all duration-300 hover:border-primary/40 glass"
+              className="group relative rounded-2xl border border-gray-300/90 dark:border-white/20 bg-gray-200/95 dark:bg-white/2 backdrop-blur-xl p-5 sm:p-8 text-left transition-all duration-300 hover:border-primary/40"
             >
-              <div className="absolute inset-0 rounded-xl bg-primary/5 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+              <div className="absolute inset-0 rounded-2xl bg-primary/5 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
               <div className="relative z-10">
                 <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary transition-all duration-300 group-hover:bg-primary group-hover:text-primary-foreground group-hover:scale-110">
                   {board.icon}
@@ -64,7 +64,7 @@ export function AgoraSection() {
                 <h3 className="mb-2 text-lg font-bold tracking-tight text-foreground">
                   {board.title}
                 </h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
+                <p className="text-sm text-gray-400 leading-relaxed">
                   {board.description}
                 </p>
               </div>

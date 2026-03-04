@@ -3,6 +3,7 @@
 import { useState, forwardRef, useImperativeHandle, type RefObject } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import Image from "next/image"
+import { agentThumbFromId, agentThumbFromPoints } from "@/lib/api/agora"
 
 /* ─── types ─── */
 
@@ -250,7 +251,10 @@ function TrialStats({
 
 /* ─── back side ─── */
 
+const FALLBACK_AVATAR = "/images/cards/agent_profile_prop.jpg"
+
 function CardBack({
+  agentId,
   agentName,
   persona,
   totalPoints,
@@ -260,6 +264,7 @@ function CardBack({
   badges,
 }: Pick<
   AgentCardProps,
+  | "agentId"
   | "agentName"
   | "persona"
   | "totalPoints"
@@ -268,15 +273,22 @@ function CardBack({
   | "recentPost"
   | "badges"
 >) {
+  const avatarImage =
+    totalPoints != null
+      ? agentThumbFromPoints(totalPoints)
+      : agentId
+        ? agentThumbFromId(agentId)
+        : FALLBACK_AVATAR
+
   return (
     <div className="absolute inset-0">
-      {/* Layer 1: Portrait (behind frame) - common for all games */}
+      {/* Layer 1: Portrait (behind frame) - 에이전트별 아바타 */}
       <div
         className="absolute overflow-hidden"
-        style={{ top: "8%", left: "5%", width: "38%", height: "84%", zIndex: 1 }}
+        style={{ top: "12%", left: "5%", width: "35%", height: "75%", zIndex: 1 }}
       >
         <Image
-          src="/images/cards/agent_profile_prop.jpg"
+          src={avatarImage}
           alt={agentName}
           fill
           priority
@@ -553,7 +565,7 @@ export const AgentCard = forwardRef<AgentCardHandle, AgentCardProps>(function Ag
             {/* Layer 1: Portrait (bottom) */}
             <div
               className="absolute overflow-hidden"
-              style={{ top: "6%", left: "4%", width: "42%", height: "88%", zIndex: 1 }}
+              style={{ top: "12%", left: "4%", width: "42%", height: "75%", zIndex: 1 }}
             >
               <Image
                 src={characterImage}
@@ -739,6 +751,7 @@ export const AgentCard = forwardRef<AgentCardHandle, AgentCardProps>(function Ag
             style={{ backfaceVisibility: "hidden", transform: "rotateY(180deg)" }}
           >
             <CardBack
+              agentId={props.agentId}
               agentName={agentName}
               persona={persona}
               totalPoints={totalPoints}

@@ -8,16 +8,18 @@ import { AgoraTabBar } from "@/components/agora/agora-tab-bar"
 import { HumanBoardTab } from "@/components/agora/human-board-tab"
 import { AgentBoardTab } from "@/components/agora/agent-board-tab"
 import { WorldCupTab } from "@/components/agora/worldcup-tab"
+import { ArchiveTab } from "@/components/agora/archive-tab"
 import type { AgoraTab } from "@/components/agora/agora-data"
 
-const VALID_TABS: AgoraTab[] = ["human", "agent", "worldcup"]
+const VALID_TABS: AgoraTab[] = ["human", "agent", "worldcup", "archive"]
 
 export default function AgoraPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
   const tabParam = searchParams.get("tab") as AgoraTab | null
-  const initialTab = tabParam && VALID_TABS.includes(tabParam) ? tabParam : "human"
+  const topicParam = searchParams.get("topic")
+  const initialTab = tabParam && VALID_TABS.includes(tabParam) ? tabParam : "agent"
   const [activeTab, setActiveTab] = useState<AgoraTab>(initialTab)
 
   // Sync tab when URL param changes (e.g. navbar link click)
@@ -39,8 +41,8 @@ export default function AgoraPage() {
       {/* Tab bar (sticky below navbar) */}
       <AgoraTabBar active={activeTab} onChange={handleTabChange} />
 
-      {/* Tab content (위 네비 탭과 겹치지 않도록 여백 확보) */}
-      <div className="mx-auto max-w-6xl px-4 sm:px-6 pt-6">
+      {/* Tab content — 전체 화면 활용, 가독성 위한 max-width */}
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12">
         <AnimatePresence mode="wait">
           {activeTab === "human" && (
             <motion.div
@@ -61,7 +63,7 @@ export default function AgoraPage() {
               exit={{ opacity: 0, x: 20 }}
               transition={{ duration: 0.25 }}
             >
-              <AgentBoardTab />
+              <AgentBoardTab initialTopicId={topicParam} />
             </motion.div>
           )}
           {activeTab === "worldcup" && (
@@ -73,6 +75,17 @@ export default function AgoraPage() {
               transition={{ duration: 0.25 }}
             >
               <WorldCupTab />
+            </motion.div>
+          )}
+          {activeTab === "archive" && (
+            <motion.div
+              key="archive"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              transition={{ duration: 0.25 }}
+            >
+              <ArchiveTab />
             </motion.div>
           )}
         </AnimatePresence>

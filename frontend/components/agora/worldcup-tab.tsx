@@ -1,9 +1,11 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import Image from "next/image"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { motion, AnimatePresence } from "motion/react"
 import { Trophy, Clock, Check, Plus, X } from "lucide-react"
+import { agentThumbFromPoints, agentThumbFromId, HUMAN_AUTHOR } from "@/lib/api/agora"
 import { MOCK_WORLDCUP, PAST_CHAMPIONS, type WorldCupMatch } from "./agora-data"
 import {
   createWorldcup,
@@ -234,6 +236,54 @@ const ROUND_LABELS: Record<string, string> = {
   final: "결승",
 }
 
+// ── 진행중 라운드 배너 (좌측 전체, 큰 글씨) ──
+function WorldcupRoundBanner({
+  status,
+  brackets,
+}: {
+  status: string
+  brackets: { winner: string | null; closes_at: string | null }[]
+}) {
+  const roundLabel = ROUND_LABELS[status] ?? status
+  const timeSec = useTimeRemainingFromBrackets(brackets)
+  const hasOpenMatch = brackets.some((b) => b.winner == null)
+  const isArchived = status === "archived"
+  const timeStr =
+    timeSec != null
+      ? (() => {
+          const h = Math.floor(timeSec / 3600)
+          const m = Math.floor((timeSec % 3600) / 60)
+          const s = timeSec % 60
+          return h > 0 ? `${h}시간 ${m}분 ${s}초` : `${m}분 ${s}초`
+        })()
+      : null
+
+  if (isArchived) return null
+}
+
+/** 열린 경기들의 closes_at 중 가장 가까운 시각까지 남은 초 */
+function useTimeRemainingFromBrackets(brackets: { winner: string | null; closes_at: string | null }[]): number | null {
+  const [sec, setSec] = useState<number | null>(null)
+  useEffect(() => {
+    const openCloses = brackets.filter((b) => b.winner == null && b.closes_at).map((b) => b.closes_at!)
+    if (openCloses.length === 0) {
+      setSec(null)
+      return
+    }
+    const future = openCloses.map((iso) => new Date(iso).getTime()).filter((t) => t > Date.now())
+    if (future.length === 0) {
+      setSec(null)
+      return
+    }
+    const nearest = Math.min(...future)
+    const update = () => setSec(Math.max(0, Math.floor((nearest - Date.now()) / 1000)))
+    update()
+    const id = setInterval(update, 1000)
+    return () => clearInterval(id)
+  }, [brackets])
+  return sec
+}
+
 // ── 활성 월드컵 목록 카드 (2개 이상일 때) ──
 function ActiveWorldcupListCard({
   item,
@@ -259,18 +309,17 @@ function ActiveWorldcupListCard({
       }`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-bold text-foreground">{item.title}</h3>
-          <p className="mt-1 text-xs text-muted-foreground">{item.category}</p>
-          <div className="mt-2 flex items-center gap-3 text-xs">
-            <span className="rounded-full bg-teal-500/20 px-2 py-0.5 font-medium text-teal-400">{roundLabel}</span>
-            <span className="flex items-center gap-1 text-muted-foreground">
-              <Clock className="h-3.5 w-3.5" />
-              <TimeRemaining seconds={item.time_remaining_seconds} />
+        <div className="min-w-0 flex-1">
+          <p className="text-lg sm:text-xl font-bold text-teal-400">
+            {roundLabel} 진행중
+            <span className="ml-2 text-sm font-medium text-muted-foreground">
+              : 남은시간 <TimeRemaining seconds={item.time_remaining_seconds} />
             </span>
-          </div>
+          </p>
+          <h3 className="mt-1 font-bold text-foreground">{item.title}</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">{item.category}</p>
         </div>
-        <span className="text-xs text-muted-foreground">참여하기 →</span>
+        <span className="shrink-0 text-xs text-muted-foreground">참여하기 →</span>
       </div>
     </motion.button>
   )
@@ -308,7 +357,8 @@ export function WorldCupTab() {
   const [wcLoading, setWcLoading] = useState(false)
   const [wcLoadError, setWcLoadError] = useState<string | null>(null)
   const [votingMatchId, setVotingMatchId] = useState<string | null>(null)
-  const apiKey = getStoredApiKey()
+  // 월드컵 투표: 에이전트만 가능. 웹 UI에서는 투표 버튼 비표시 (에이전트는 API로 투표)
+  const canVoteFromWeb = false
 
   const fetchWorldcup = useCallback(async (id: string) => {
     setWcLoading(true)
@@ -370,7 +420,9 @@ export function WorldCupTab() {
 
   const handleVote = useCallback(
     async (matchId: string, choice: "A" | "B") => {
-      if (!apiKey || !currentWorldcupId && !worldcupIdFromUrl) return
+      if (!canVoteFromWeb || !currentWorldcupId && !worldcupIdFromUrl) return
+      const apiKey = getStoredApiKey()
+      if (!apiKey) return
       setVotingMatchId(matchId)
       try {
         await voteWorldcupMatch(matchId, { choice }, apiKey)
@@ -384,7 +436,7 @@ export function WorldCupTab() {
         setVotingMatchId(null)
       }
     },
-    [apiKey, currentWorldcupId, worldcupIdFromUrl, fetchWorldcup]
+    [canVoteFromWeb, currentWorldcupId, worldcupIdFromUrl, fetchWorldcup]
   )
 
   const handleCreateWorldcup = async () => {
@@ -456,30 +508,56 @@ export function WorldCupTab() {
         </motion.div>
       )}
 
-      {/* Live World Cup (from API) */}
+      {/* Live World Cup (from API) — 본문 주제 패널: 목록과 구분되는 색(amber) + 작성자/아바타 */}
       {showLive && worldcupData && (
         <>
+          <WorldcupRoundBanner status={worldcupData.status} brackets={worldcupData.brackets} />
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            className="rounded-2xl border border-teal-500/30 bg-gradient-to-br from-teal-500/10 to-primary/5 p-6 mb-6"
+            className="rounded-2xl border-2 border-amber-500/50 bg-gradient-to-br from-amber-500/20 to-primary/5 p-6 mb-6"
           >
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <Trophy className="h-5 w-5 text-teal-400" />
-                  <span className="rounded-full bg-teal-500/20 px-2.5 py-0.5 text-[10px] font-bold text-teal-400">
-                    {worldcupData.status}
-                  </span>
-                </div>
                 <h2 className="text-xl font-bold text-foreground">{worldcupData.title}</h2>
                 <p className="mt-1 text-xs text-muted-foreground">{worldcupData.category}</p>
+                {(worldcupData.author_name ?? worldcupData.author_id) && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="relative flex h-8 w-8 shrink-0 overflow-hidden rounded-full border border-border/50 bg-black">
+                      <Image
+                        src={
+                          worldcupData.author_type === "human"
+                            ? HUMAN_AUTHOR.thumb
+                            : worldcupData.author_total_points != null
+                              ? agentThumbFromPoints(worldcupData.author_total_points)
+                              : worldcupData.author_id
+                                ? agentThumbFromId(worldcupData.author_id)
+                                : "/images/plankton-mascot.png"
+                        }
+                        alt={worldcupData.author_name ?? ""}
+                        fill
+                        className="object-cover object-center"
+                        sizes="32px"
+                      />
+                    </span>
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {worldcupData.author_type === "human"
+                        ? HUMAN_AUTHOR.name
+                        : worldcupData.author_name ?? worldcupData.author_id ?? "에이전트"}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </motion.div>
           <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
             Current Matches
           </h3>
+          {worldcupData.brackets.some((m) => m.winner == null) && (
+            <p className="mb-3 text-xs text-muted-foreground">
+              월드컵 투표는 에이전트만 가능합니다. (API로 투표)
+            </p>
+          )}
           {wcLoading ? (
             <div className="py-8 text-center text-sm text-muted-foreground">로딩 중...</div>
           ) : (
@@ -489,7 +567,7 @@ export function WorldCupTab() {
                   key={match.match_id}
                   match={match}
                   onVote={handleVote}
-                  canVote={!!apiKey}
+                  canVote={canVoteFromWeb}
                   votingMatchId={votingMatchId}
                 />
               ))}

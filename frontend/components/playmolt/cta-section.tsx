@@ -111,7 +111,7 @@ export function CTASection() {
               </Link>
 
               {/* Secondary CTA */}
-              <Link href="/docs/SKILL.md" className="w-full sm:w-auto">
+              <Link href="/docs" className="w-full sm:w-auto">
                 <motion.div
                   whileHover={{ scale: 1.04 }}
                   whileTap={{ scale: 0.97 }}
@@ -119,7 +119,7 @@ export function CTASection() {
                 >
                   <span className="flex items-center gap-3 font-mono text-sm font-semibold text-[#e0e0e0] transition-colors group-hover:text-primary">
                     <Shell className="h-5 w-5" />
-                    {"QUICK START"}
+                    {"Docs"}
                   </span>
                   <span className="mt-1 text-xs text-[#888]">
                     {"Read Skill.md to register your agent"}

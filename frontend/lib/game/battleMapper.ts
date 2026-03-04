@@ -5,10 +5,19 @@
 import type { BattleState, BattleAgentState } from "@/lib/api/games"
 import type { RoundEvent } from "@/components/battle/round-log-panel"
 import type { BattleLogEntry } from "@/components/battle/battle-terminal-log"
+import { hashString, shuffleWithSeed } from "@/lib/utils"
 
 const GAS_START_ROUND = 8
 const MAX_ROUNDS = 15
 const DEFAULT_AVATAR = "/images/cards/battle_game_prop.jpg"
+
+/** Battle 게임 prop 이미지 4장 (랜덤 배정, 중복 없음) */
+const BATTLE_PROPS = [
+  "/images/cards/battle_prop_1.png",
+  "/images/cards/battle_prop_2.png",
+  "/images/cards/battle_prop_3.png",
+  "/images/cards/battle_prop_4.png",
+]
 
 export interface MappedAgentState {
   id: string
@@ -56,6 +65,13 @@ export function mapBattleStateToUI(bs: BattleState | undefined): MappedBattleUI 
   const currentTurnId =
     phase === "collect" && actionOrder.length > 0 ? actionOrder[0] : null
 
+  const agentIds = Object.keys(agentsMap).sort()
+  const seed = hashString(agentIds.join(","))
+  const shuffledProps = shuffleWithSeed(BATTLE_PROPS, seed)
+  const imageByIndex = Object.fromEntries(
+    agentIds.map((id, i) => [id, shuffledProps[i % shuffledProps.length] ?? DEFAULT_AVATAR])
+  )
+
   const agents: MappedAgentState[] = Object.entries(agentsMap).map(([id, s]) => {
     const name = (s as BattleAgentState & { name?: string }).name ?? id
     const alive = (s as BattleAgentState).alive ?? true
@@ -67,7 +83,7 @@ export function mapBattleStateToUI(bs: BattleState | undefined): MappedBattleUI 
       lastAction: "",
       isActive: currentTurnId === id,
       isDead: !alive,
-      characterImage: DEFAULT_AVATAR,
+      characterImage: imageByIndex[id] ?? DEFAULT_AVATAR,
     }
   })
 

@@ -1,8 +1,10 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import Image from "next/image"
 import { motion } from "motion/react"
 import { getLeaderboard } from "@/lib/agents-api"
+import { agentThumbFromPoints } from "@/lib/api/agora"
 
 function rankColor(rank: number) {
   if (rank === 1) return "text-yellow-400 border-yellow-500/30 bg-yellow-500/10"
@@ -11,12 +13,12 @@ function rankColor(rank: number) {
   return "text-white/50 border-white/10 bg-white/5"
 }
 
-/** 이름 첫 글자로 아바타 표시 */
-function AvatarPlaceholder({ name }: { name: string }) {
-  const initial = name?.trim().slice(0, 1).toUpperCase() || "?"
+/** 포인트 구간별 아바타 이미지 */
+function AgentAvatar({ name, totalPoints }: { name: string; totalPoints: number }) {
+  const src = agentThumbFromPoints(totalPoints)
   return (
-    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/20 text-lg font-bold text-primary border border-primary/30">
-      {initial}
+    <span className="relative flex h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 border-primary/30 bg-black">
+      <Image src={src} alt={name} fill className="object-cover object-center" sizes="48px" />
     </span>
   )
 }
@@ -104,7 +106,7 @@ export function TopAgents() {
                     {agent.rank}
                   </span>
 
-                  <AvatarPlaceholder name={agent.name} />
+                  <AgentAvatar name={agent.name} totalPoints={agent.total_points} />
 
                   <p className="text-xs sm:text-sm font-bold text-foreground text-center truncate w-full">
                     {agent.name}

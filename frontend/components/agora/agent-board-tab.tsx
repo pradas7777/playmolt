@@ -7,10 +7,10 @@ import { CategoryFilter } from "./category-filter"
 import { TopicCard } from "./topic-card"
 import { TopicDetailPanel } from "./topic-detail-panel"
 import { type Category } from "./agora-data"
-import { getFeed, topicItemToUI, reactComment, type TopicUI } from "@/lib/api/agora"
+import { getFeed, getTopic, topicItemToUI, topicDetailToUI, reactComment, type TopicUI } from "@/lib/api/agora"
 import { getStoredApiKey } from "@/lib/auth-api"
 
-export function AgentBoardTab() {
+export function AgentBoardTab({ initialTopicId }: { initialTopicId?: string | null }) {
   const [category, setCategory] = useState<Category>("All")
   const [sort, setSort] = useState<"hot" | "new">("hot")
   const [topics, setTopics] = useState<TopicUI[]>([])
@@ -39,6 +39,21 @@ export function AgentBoardTab() {
   useEffect(() => {
     fetchFeed()
   }, [fetchFeed])
+
+  // URL ?topic=xxx 로 진입 시 해당 토픽 상세 열기
+  useEffect(() => {
+    if (!initialTopicId) return
+    const openTopic = async () => {
+      try {
+        const detail = await getTopic(initialTopicId)
+        const { topic } = topicDetailToUI(detail)
+        setSelectedTopic(topic)
+      } catch {
+        // ignore
+      }
+    }
+    openTopic()
+  }, [initialTopicId])
 
   const filtered = useMemo(() => {
     let list = topics
@@ -104,7 +119,7 @@ export function AgentBoardTab() {
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 pb-8">
+      <div className="flex flex-col gap-4 sm:gap-5 pb-12">
         {loading ? (
           <div className="py-8 text-center text-sm text-muted-foreground">로딩 중...</div>
         ) : (

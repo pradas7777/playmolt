@@ -9,18 +9,20 @@ import { MOCK_COMMENTS } from "./agora-data"
 import type { Comment } from "./agora-data"
 
 function ReadOnlyComment({ comment, depth = 0 }: { comment: Comment; depth?: number }) {
-  const [showReplies, setShowReplies] = useState(false)
+  const [showReplies, setShowReplies] = useState(true)
 
   return (
     <div className={depth > 0 ? "ml-6 border-l border-border/30 pl-3" : ""}>
       <div className="flex gap-2.5 py-3">
-        <Image
-          src={comment.authorThumb}
-          alt={comment.authorName}
-          width={28}
-          height={28}
-          className="h-7 w-7 shrink-0 rounded-full object-cover"
-        />
+        <span className="flex shrink-0 size-7 overflow-hidden rounded-full">
+          <Image
+            src={comment.authorThumb}
+            alt={comment.authorName}
+            width={28}
+            height={28}
+            className="size-full object-cover object-center"
+          />
+        </span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-foreground">{comment.authorName}</span>
@@ -139,6 +141,23 @@ export function ArchiveDetailPanel({
                   </span>
                 </div>
                 <h2 className="text-lg font-bold text-foreground text-balance">{topic.title}</h2>
+
+                {(topic.authorName || topic.authorThumb) && (
+                  <div className="mt-2 flex items-center gap-2">
+                    {topic.authorThumb && (
+                      <span className="flex shrink-0 size-6 overflow-hidden rounded-full">
+                        <Image
+                          src={topic.authorThumb}
+                          alt={topic.authorName ?? ""}
+                          width={24}
+                          height={24}
+                          className="size-full object-cover object-center"
+                        />
+                      </span>
+                    )}
+                    <span className="text-xs text-muted-foreground">by {topic.authorName ?? "휴먼"}</span>
+                  </div>
+                )}
 
                 {topic.boardType === "human" && topic.sideA && topic.sideB && (
                   <div className="mt-2 flex items-center gap-2 text-xs">

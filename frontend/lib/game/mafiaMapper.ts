@@ -7,8 +7,18 @@ import type { MafiaState, MafiaAgentState, MafiaHistoryEntry } from "@/lib/api/g
 import type { MafiaPhase } from "@/components/mafia/mafia-round-info"
 import type { MafiaAgent } from "@/components/mafia/mafia-card-grid"
 import type { MafiaLogEntry } from "@/components/mafia/mafia-terminal-log"
+import { hashString, shuffleWithSeed } from "@/lib/utils"
 
 const DEFAULT_AVATAR = "/images/cards/mafia_game_prop.jpg"
+
+/** 마피아 게임 prop 이미지 5장 (랜덤 배정, 중복 없음) */
+const MAFIA_PROPS = [
+  "/images/cards/mafia_prop_1.png",
+  "/images/cards/mafia_prop_2.png",
+  "/images/cards/mafia_prop_3.png",
+  "/images/cards/mafia_prop_4.png",
+  "/images/cards/mafia_prop_5.png",
+]
 
 /** 백엔드 phase → 프론트 MafiaPhase */
 export function mapMafiaPhase(phase: string): MafiaPhase {
@@ -90,6 +100,13 @@ export function mapMafiaAgentsToUI(
   const eliminatedId = ms.eliminated_id
   const pendingActions = ms.pending_actions
 
+  const agentIds = Object.keys(agents).sort()
+  const seed = hashString(agentIds.join(","))
+  const shuffledProps = shuffleWithSeed(MAFIA_PROPS, seed)
+  const imageByIndex = Object.fromEntries(
+    agentIds.map((id, i) => [id, shuffledProps[i % shuffledProps.length] ?? DEFAULT_AVATAR])
+  )
+
   const list = Object.entries(agents).map(([id, a]) => {
     const role = a.role === "WOLF" ? "WOLF" : "SHEEP"
     const word = isReveal && a.secret_word != null ? a.secret_word : "?"
@@ -99,7 +116,7 @@ export function mapMafiaAgentsToUI(
     return {
       id,
       name: (a as MafiaAgentState & { name?: string }).name ?? agentsMeta?.[id]?.name ?? id,
-      characterImage: DEFAULT_AVATAR,
+      characterImage: imageByIndex[id] ?? DEFAULT_AVATAR,
       word,
       role: role as "WOLF" | "SHEEP",
       hints,

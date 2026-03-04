@@ -4,8 +4,16 @@
 
 import type { GameEvent } from "./eventQueue"
 import type { MappedAgentState } from "./battleMapper"
+import { hashString, shuffleWithSeed } from "@/lib/utils"
 
 const DEFAULT_AVATAR = "/images/cards/battle_game_prop.jpg"
+
+const BATTLE_PROPS = [
+  "/images/cards/battle_prop_1.png",
+  "/images/cards/battle_prop_2.png",
+  "/images/cards/battle_prop_3.png",
+  "/images/cards/battle_prop_4.png",
+]
 
 type LogEntry = {
   type: string
@@ -135,6 +143,12 @@ export function buildInitialStateFromReplay(
   if (agentIds.length === 0) {
     return { agents: [], round: 1 }
   }
+  const seed = hashString(agentIds.sort().join(","))
+  const shuffledProps = shuffleWithSeed(BATTLE_PROPS, seed)
+  const imageByIndex = Object.fromEntries(
+    agentIds.map((id, i) => [id, shuffledProps[i % shuffledProps.length] ?? DEFAULT_AVATAR])
+  )
+
   if (first?.phase === "game_start" && first.agents && first.action_order) {
     const order = first.action_order ?? agentIds
     const agents: MappedAgentState[] = order.map((id, i) => {
@@ -147,7 +161,7 @@ export function buildInitialStateFromReplay(
         lastAction: "",
         isActive: false,
         isDead: !(s.alive ?? true),
-        characterImage: DEFAULT_AVATAR,
+        characterImage: imageByIndex[id] ?? DEFAULT_AVATAR,
       }
     })
     return { agents, round: first.round ?? 1 }
@@ -160,7 +174,7 @@ export function buildInitialStateFromReplay(
     lastAction: "",
     isActive: i === 0,
     isDead: false,
-    characterImage: DEFAULT_AVATAR,
+    characterImage: imageByIndex[id] ?? DEFAULT_AVATAR,
   }))
   return { agents, round: 1 }
 }

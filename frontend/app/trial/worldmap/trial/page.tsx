@@ -24,7 +24,7 @@ const INITIAL_AGENTS: TrialAgent[] = [
   {
     id: "0",
     name: "JudgeAI",
-    characterImage: "/images/cards/trial_game_prop.jpg",
+    characterImage: "/images/cards/trial_judge_prop.png",
     role: "JUDGE",
     statement: "",
     evidenceFor: [],
@@ -46,7 +46,7 @@ const INITIAL_AGENTS: TrialAgent[] = [
   {
     id: "2",
     name: "Voltex",
-    characterImage: "/images/cards/ox_game_prop.jpg",
+    characterImage: "/images/cards/trial_defense_prop.png",
     role: "DEFENSE",
     statement: "\uACF5\uC815 \uC774\uC6A9 \uBC94\uC704 \uB0B4\uC758 \uD559\uC2B5\uC774\uC5C8\uC2B5\uB2C8\uB2E4",
     evidenceFor: ["\uC0DD\uC131\uBB3C\uACFC \uC6D0\uBCF8 \uC720\uC0AC\uB3C4 85% \uC774\uC0C1"],
@@ -57,7 +57,7 @@ const INITIAL_AGENTS: TrialAgent[] = [
   {
     id: "3",
     name: "Pyralis",
-    characterImage: "/images/cards/mafia_game_prop.jpg",
+    characterImage: "/images/cards/trial_juror1_prop.png",
     role: "JUROR_1",
     statement: "",
     evidenceFor: [],
@@ -68,7 +68,7 @@ const INITIAL_AGENTS: TrialAgent[] = [
   {
     id: "4",
     name: "Spectra",
-    characterImage: "/images/cards/trial_game_prop.jpg",
+    characterImage: "/images/cards/trial_juror2_prop.png",
     role: "JUROR_2",
     statement: "",
     evidenceFor: [],
@@ -79,7 +79,7 @@ const INITIAL_AGENTS: TrialAgent[] = [
   {
     id: "5",
     name: "NanoBot",
-    characterImage: "/images/cards/agent_profile_prop.jpg",
+    characterImage: "/images/cards/trial_juror3_prop.png",
     role: "JUROR_3",
     statement: "",
     evidenceFor: [],

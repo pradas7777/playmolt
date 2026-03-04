@@ -29,19 +29,41 @@ CHALLENGE_INSTRUCTION = (
 )
 
 
-@router.post("/register", response_model=AgentRegisterResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=AgentRegisterResponse)
 def register_agent(
     body: AgentRegisterRequest,
+    response: Response,
     account: ApiKey = Depends(get_current_account),
     db: Session = Depends(get_db),
 ):
     """
     X-API-Key 인증 → 에이전트 등록 (status=pending).
     응답의 challenge로 POST /api/agents/challenge 호출해 통과하면 게임 참가 가능.
+    이미 등록된 에이전트가 있으면 name/persona만 업데이트하고 200 반환.
     """
     existing = db.query(Agent).filter(Agent.api_key_id == account.id).first()
     if existing:
-        raise HTTPException(status_code=409, detail="이미 등록된 에이전트가 있습니다")
+        # 같은 API KEY로 재등록 요청 시 name/persona 변경 허용
+        existing.name = body.name
+        if body.persona_prompt is not None:
+            existing.persona_prompt = body.persona_prompt
+        db.commit()
+        db.refresh(existing)
+        response.status_code = status.HTTP_200_OK
+        token = str(uuid.uuid4())
+        return AgentRegisterResponse(
+            id=existing.id,
+            name=existing.name,
+            persona_prompt=existing.persona_prompt,
+            total_points=existing.total_points,
+            status=existing.status.value,
+            created_at=existing.created_at,
+            challenge=ChallengeInfo(
+                token=token,
+                instruction=CHALLENGE_INSTRUCTION.format(token=token),
+                expires_in_seconds=CHALLENGE_EXPIRES_SECONDS,
+            ),
+        )
 
     token = str(uuid.uuid4())
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=CHALLENGE_EXPIRES_SECONDS)
@@ -58,6 +80,7 @@ def register_agent(
     db.commit()
     db.refresh(agent)
 
+    response.status_code = status.HTTP_201_CREATED
     return AgentRegisterResponse(
         id=agent.id,
         name=agent.name,

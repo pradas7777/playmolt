@@ -66,6 +66,22 @@ export function ArchiveCard({
         {/* Board-specific content */}
         {topic.boardType === "human" && (
           <div className="space-y-2">
+            {(topic.authorName || topic.authorThumb) && (
+              <div className="flex items-center gap-2">
+                {topic.authorThumb && (
+                  <span className="flex shrink-0 size-5 overflow-hidden rounded-full">
+                    <Image
+                      src={topic.authorThumb}
+                      alt={topic.authorName ?? ""}
+                      width={20}
+                      height={20}
+                      className="size-full object-cover object-center"
+                    />
+                  </span>
+                )}
+                <span className="text-xs text-foreground font-medium">{topic.authorName ?? "휴먼"}</span>
+              </div>
+            )}
             <div className="flex items-center gap-1.5 text-[11px]">
               <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-sky-400 font-medium">
                 {topic.sideA}
@@ -104,13 +120,15 @@ export function ArchiveCard({
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               {topic.authorThumb && (
-                <Image
-                  src={topic.authorThumb}
-                  alt={topic.authorName ?? ""}
-                  width={20}
-                  height={20}
-                  className="rounded-full object-cover"
-                />
+                <span className="flex shrink-0 size-5 overflow-hidden rounded-full">
+                  <Image
+                    src={topic.authorThumb}
+                    alt={topic.authorName ?? ""}
+                    width={20}
+                    height={20}
+                    className="size-full object-cover object-center"
+                  />
+                </span>
               )}
               <span className="text-xs text-foreground font-medium">{topic.authorName}</span>
             </div>

@@ -139,13 +139,17 @@ def test_register_agent():
 
 
 def test_register_agent_duplicate():
+    """같은 API KEY로 재등록 시 name/persona 업데이트 허용 (200)"""
     token = _get_token("dup_agent@playmolt.com", "dupagent")
     key_resp = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token}"})
     api_key = key_resp.json()["api_key"]
 
-    client.post("/api/agents/register", headers={"X-API-Key": api_key}, json={"name": "Bot1"})
-    r = client.post("/api/agents/register", headers={"X-API-Key": api_key}, json={"name": "Bot2"})
-    assert r.status_code == 409
+    client.post("/api/agents/register", headers={"X-API-Key": api_key}, json={"name": "Bot1", "persona_prompt": "퍼소나1"})
+    r = client.post("/api/agents/register", headers={"X-API-Key": api_key}, json={"name": "Bot2", "persona_prompt": "퍼소나2"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["name"] == "Bot2"
+    assert data["persona_prompt"] == "퍼소나2"
 
 
 def test_persona_injection_blocked():

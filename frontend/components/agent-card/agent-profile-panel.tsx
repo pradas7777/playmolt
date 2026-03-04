@@ -1,5 +1,9 @@
 "use client"
 
+import Image from "next/image"
+import Link from "next/link"
+import { agentThumbFromId, agentThumbFromPoints } from "@/lib/api/agora"
+
 /**
  * 마이페이지용 에이전트 프로필 패널.
  * agent-card 백면(CardBack)과 동일한 항목: agentName, persona, totalPoints, winRate, gameRecords, recentPost, badges
@@ -11,7 +15,13 @@ interface GameRecord {
   losses: number
 }
 
+export interface AgentAgoraItem {
+  topics: { id: string; title: string; category: string; created_at: string | null }[]
+  comments: { id: string; topic_id: string; topic_title: string; text: string; created_at: string | null }[]
+}
+
 export interface AgentProfilePanelProps {
+  agentId?: string
   agentName: string
   persona?: string | null
   totalPoints?: number
@@ -25,9 +35,11 @@ export interface AgentProfilePanelProps {
     instruction: string
     expires_in_seconds: number
   } | null
+  agoraContent?: AgentAgoraItem | null
 }
 
 export function AgentProfilePanel({
+  agentId,
   agentName,
   persona,
   totalPoints,
@@ -37,6 +49,7 @@ export function AgentProfilePanel({
   badges,
   status = "active",
   challenge = null,
+  agoraContent = null,
 }: AgentProfilePanelProps) {
   const winRatePercent =
     winRate !== undefined ? (typeof winRate === "number" ? Math.round(winRate * 100) : winRate) : undefined
@@ -46,11 +59,26 @@ export function AgentProfilePanel({
       ? JSON.stringify({ answer: "READY", token: challenge.token })
       : null
 
+  const agentThumb =
+    totalPoints != null ? agentThumbFromPoints(totalPoints) : agentId ? agentThumbFromId(agentId) : undefined
+
   return (
     <div className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-3 mb-3">
+        {agentThumb && (
+          <span className="flex shrink-0 size-12 overflow-hidden rounded-full">
+            <Image
+              src={agentThumb}
+              alt={agentName}
+              width={48}
+              height={48}
+              className="size-full object-cover object-center"
+            />
+          </span>
+        )}
+        <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
         <span
-          className={`h-2 w-2 rounded-full ${
+          className={`h-2 w-2 rounded-full shrink-0 ${
             status === "active"
               ? "bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]"
               : status === "pending"
@@ -71,6 +99,7 @@ export function AgentProfilePanel({
             챌린지 통과
           </span>
         )}
+        </div>
       </div>
 
       <div className="space-y-3 text-sm">
@@ -149,6 +178,50 @@ export function AgentProfilePanel({
           <p className="text-xs text-muted-foreground italic truncate">
             {recentPost}
           </p>
+        )}
+
+        {agoraContent && (agoraContent.topics.length > 0 || agoraContent.comments.length > 0) && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">아고라 활동</p>
+            {agoraContent.topics.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-medium text-foreground/80">작성한 글 ({agoraContent.topics.length})</p>
+                <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
+                  {agoraContent.topics.slice(0, 10).map((t) => (
+                    <Link
+                      key={t.id}
+                      href={`/agora?tab=agent&topic=${t.id}`}
+                      className="text-xs text-primary hover:underline line-clamp-1 truncate"
+                    >
+                      [{t.category}] {t.title}
+                    </Link>
+                  ))}
+                  {agoraContent.topics.length > 10 && (
+                    <span className="text-[10px] text-muted-foreground">외 {agoraContent.topics.length - 10}개</span>
+                  )}
+                </div>
+              </div>
+            )}
+            {agoraContent.comments.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-medium text-foreground/80">작성한 댓글 ({agoraContent.comments.length})</p>
+                <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
+                  {agoraContent.comments.slice(0, 10).map((c) => (
+                    <Link
+                      key={c.id}
+                      href={`/agora?tab=agent&topic=${c.topic_id}`}
+                      className="text-xs text-muted-foreground hover:text-primary hover:underline line-clamp-2"
+                    >
+                      <span className="text-foreground/70">{c.topic_title}</span> · {c.text.slice(0, 40)}{c.text.length > 40 ? "…" : ""}
+                    </Link>
+                  ))}
+                  {agoraContent.comments.length > 10 && (
+                    <span className="text-[10px] text-muted-foreground">외 {agoraContent.comments.length - 10}개</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {badges && badges.length > 0 && (

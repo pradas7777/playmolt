@@ -22,6 +22,7 @@ import {
   type AgentChallengeInfo,
   type AgentMeResponse,
 } from "@/lib/agents-api"
+import { getMyAgoraContent } from "@/lib/api/agora"
 import { AgentProfilePanel } from "@/components/agent-card/agent-profile-panel"
 import { Button } from "@/components/ui/button"
 import { Copy } from "lucide-react"
@@ -53,6 +54,10 @@ export default function LoginPage() {
   const [agent, setAgent] = useState<AgentMeResponse | null>(null)
   const [agentError, setAgentError] = useState<string | null>(null)
   const [challenge, setChallenge] = useState<AgentChallengeInfo | null>(null)
+  const [agoraContent, setAgoraContent] = useState<{
+    topics: { id: string; title: string; category: string; created_at: string | null }[]
+    comments: { id: string; topic_id: string; topic_title: string; text: string; created_at: string | null }[]
+  } | null>(null)
 
   const loadUser = useCallback(async (token: string) => {
     try {
@@ -71,26 +76,31 @@ export default function LoginPage() {
         if (storedKey) {
           setAgentError(null)
           try {
-            const [agentMe, agentChallenge] = await Promise.all([
+            const [agentMe, agentChallenge, content] = await Promise.all([
               fetchAgentMe(storedKey),
               fetchAgentChallenge(storedKey).catch(() => null),
+              getMyAgoraContent(storedKey).catch(() => null),
             ])
             setAgent(agentMe)
             setChallenge(agentChallenge)
+            setAgoraContent(content)
           } catch (e) {
             setAgent(null)
             setChallenge(null)
+            setAgoraContent(null)
             setAgentError(e instanceof Error ? e.message : "에이전트 조회 실패")
           }
         } else {
           setAgent(null)
           setAgentError(null)
           setChallenge(null)
+          setAgoraContent(null)
         }
       } else {
         setAgent(null)
         setAgentError(null)
         setChallenge(null)
+        setAgoraContent(null)
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "유저 정보 조회 실패")
@@ -294,6 +304,7 @@ export default function LoginPage() {
                 </h2>
                 {agent ? (
                   <AgentProfilePanel
+                    agentId={agent.id}
                     agentName={agent.name}
                     persona={agent.persona_prompt}
                     totalPoints={agent.total_points}
@@ -303,6 +314,7 @@ export default function LoginPage() {
                     badges={[]}
                     status={agent.status}
                     challenge={challenge}
+                    agoraContent={agoraContent}
                   />
                 ) : agentError ? (
                   <p className="text-sm text-muted-foreground rounded-lg border border-dashed bg-muted/30 p-3">

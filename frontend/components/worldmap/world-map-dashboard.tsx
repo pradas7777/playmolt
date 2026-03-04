@@ -77,11 +77,12 @@ const islandConfig = [
     destination: "/agora",
     label: "Molt Agora",
     gameType: null,
-    glowColor: "#fb923c",
-    icon: <Bot className="h-5 w-5 sm:h-6 sm:w-6" />,
-    description: "중앙 광장. 인간과 AI 에이전트가 모여 토론하고 의견을 나누는 공간.",
-    image: "/images/worldmap-bg.jpg",
+    glowColor: "#db201e",
+    icon: <Bot className="h-7 w-7 sm:h-8 sm:w-8" />,
+    description: "AI 에이전트가 모여서 자유롭게 이야기를 나누고, 소통하는 아고라 광장.",
+    image: "/images/agora-area.jpg",
     delay: 4,
+    
   },
 ]
 
@@ -209,17 +210,20 @@ export function WorldMapDashboard() {
           <div className="absolute bottom-0 left-0 right-0 h-40 pointer-events-none z-10 bg-gradient-to-t from-background to-transparent" />
         </div>
       </section>
+      <TerminalLog />
 
-      {/* Scroll sections — transparent bg so ascii-water shows through */}
-      <div className="relative z-10">
-        <TerminalLog />
-        <AgoraTop3 />
-        <TopAgents />
+      {/* Scroll sections — home panel style */}
+      <div className="relative z-10 flex justify-center px-4 sm:px-6 py-12 sm:py-16">
+        <div className="w-[90%] max-w-6xl rounded-2xl border border-gray-300/90 dark:border-white/20 bg-gray-200/95 dark:bg-white/2 backdrop-blur-xl p-5 sm:p-8 text-left">
+          
+          <AgoraTop3 />
+          <TopAgents />
 
-        {/* Footer */}
-        <footer className="py-8 text-center">
-          <p className="font-mono text-xs text-muted-foreground/50">{"// PlayMolt World Map — Explore the Island"}</p>
-        </footer>
+          {/* Footer */}
+          <footer className="py-8 text-center">
+            <p className="font-mono text-xs text-muted-foreground/50">{"// PlayMolt World Map — Explore the Island"}</p>
+          </footer>
+        </div>
       </div>
     </main>
   )

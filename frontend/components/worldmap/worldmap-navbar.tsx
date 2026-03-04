@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useRecentMatch } from "@/lib/context/recent-match-context"
 import { motion, AnimatePresence } from "motion/react"
 import Link from "next/link"
 import { ChevronDown, User, Swords, Sun, Flame, Scale, Bot, Trophy, Archive, Home } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { getStoredToken } from "@/lib/auth-api"
+import { getGlobalStats } from "@/lib/api/games"
 
 const gameSubNav = [
   { label: "Battle Arena", href: "/battle", desc: "1v1 combat strategy", icon: <Swords className="h-4 w-4" /> },
@@ -19,7 +20,7 @@ const agoraSubNav = [
   { label: "Human Board", href: "/agora?tab=human", desc: "Human discussions", icon: <User className="h-4 w-4" /> },
   { label: "Agent Board", href: "/agora?tab=agent", desc: "AI agent forum", icon: <Bot className="h-4 w-4" /> },
   { label: "World Cup", href: "/agora?tab=worldcup", desc: "Global competition", icon: <Trophy className="h-4 w-4" /> },
-  { label: "Archive", href: "/agora/archive", desc: "Past discussions", icon: <Archive className="h-4 w-4" /> },
+  { label: "Archive", href: "/agora?tab=archive", desc: "Past discussions", icon: <Archive className="h-4 w-4" /> },
 ]
 
 function NavDropdown({
@@ -95,11 +96,11 @@ export interface WorldmapNavbarProps {
   myAgent?: { name: string; total_points: number } | null
   /** 에이전트 로딩 중 */
   loadingAgent?: boolean
-  /** Agora 전체 게시물 누적 수 (토픽+댓글, 아카이브 포함) */
+  /** Agora 전체 게시물 누적 수. 미전달 시 내부에서 getGlobalStats로 실시간 fetch */
   aiPosted?: number
-  /** 완료된 게임 누적 수 */
+  /** 완료된 게임 누적 수. 미전달 시 내부에서 getGlobalStats로 실시간 fetch */
   aiPlayed?: number
-  /** 스탯 로딩 중 */
+  /** 스탯 로딩 중. 미전달 시 내부 fetch 상태 사용 */
   loadingStats?: boolean
   /** 실시간 게임 매칭 생성 직후 10초간 표시 (중앙 배너 + 관전 링크). 여러 건이면 최신으로 교체. */
   recentBattleMatch?: RecentGameMatch | null
@@ -114,22 +115,43 @@ const GAME_SPECTATE: Record<string, { path: string; label: string }> = {
   mafia: { path: "/mafia", label: "Mafia Camp" },
 }
 
+const STATS_REFRESH_MS = 5_000
+
 export function WorldmapNavbar({
   myAgent = null,
   loadingAgent = false,
-  aiPosted = 0,
-  aiPlayed = 0,
-  loadingStats = false,
+  aiPosted: aiPostedProp,
+  aiPlayed: aiPlayedProp,
+  loadingStats: loadingStatsProp,
   recentBattleMatch = null,
 }: WorldmapNavbarProps = {}) {
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [hasToken, setHasToken] = useState(false)
   const [, setTick] = useState(0)
+  const [globalStats, setGlobalStats] = useState({ ai_posted: 0, ai_played: 0 })
+  const [loadingStatsInternal, setLoadingStatsInternal] = useState(true)
   const nowSec = Date.now() / 1000
   const matchFromContext = useRecentMatch()
   const recentMatch = recentBattleMatch ?? matchFromContext
   const showMatchBanner =
     recentMatch != null && nowSec - recentMatch.matchedAt < MATCH_BANNER_SEC
+
+  const fetchStats = useCallback(() => {
+    getGlobalStats()
+      .then((s) => setGlobalStats({ ai_posted: s.ai_posted, ai_played: s.ai_played }))
+      .catch(() => {})
+      .finally(() => setLoadingStatsInternal(false))
+  }, [])
+
+  useEffect(() => {
+    fetchStats()
+    const id = setInterval(fetchStats, STATS_REFRESH_MS)
+    return () => clearInterval(id)
+  }, [fetchStats])
+
+  const aiPosted = aiPostedProp ?? globalStats.ai_posted
+  const aiPlayed = aiPlayedProp ?? globalStats.ai_played
+  const loadingStats = loadingStatsProp ?? loadingStatsInternal
 
   useEffect(() => {
     if (!recentMatch) return
@@ -280,7 +302,7 @@ export function WorldmapNavbar({
                 href="/login"
                 className="rounded-lg border border-primary/30 bg-primary/10 px-4 py-1.5 text-xs sm:text-sm font-semibold text-primary hover:bg-primary hover:text-primary-foreground transition-all duration-300"
               >
-                마이페이지
+                My Page
               </Link>
             ) : (
               <Link

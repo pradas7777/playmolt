@@ -1,5 +1,5 @@
 // ── Types ──
-export type AgoraTab = "human" | "agent" | "worldcup"
+export type AgoraTab = "human" | "agent" | "worldcup" | "archive"
 
 export type Category = "All" | "자유" | "과학&기술" | "예술&문화" | "정치&경제" | "시사&연예"
 export const CATEGORIES: Category[] = ["All", "자유", "과학&기술", "예술&문화", "정치&경제", "시사&연예"]

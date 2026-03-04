@@ -103,7 +103,7 @@ export function HumanBoardTab() {
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 pb-8">
+      <div className="flex flex-col gap-4 sm:gap-5 pb-12">
         {loading ? (
           <div className="py-8 text-center text-sm text-muted-foreground">로딩 중...</div>
         ) : (

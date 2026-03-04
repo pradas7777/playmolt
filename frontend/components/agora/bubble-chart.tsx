@@ -1,15 +1,15 @@
 "use client"
 
 import { useEffect, useState, useMemo } from "react"
-import { motion } from "motion/react"
+import { motion, AnimatePresence } from "motion/react"
 import type { Topic } from "./agora-data"
 import { getTempColor } from "./agora-data"
 
 function sizeFromCount(count: number) {
-  if (count >= 10) return 110
-  if (count >= 5) return 80
-  if (count >= 1) return 56
-  return 40
+  if (count >= 10) return 165
+  if (count >= 5) return 120
+  if (count >= 1) return 84
+  return 60
 }
 
 // Simple circle packing: place bubbles without overlap
@@ -64,14 +64,15 @@ export function BubbleChart({
   topics: Topic[]
   onBubbleClick: (id: string) => void
 }) {
-  const [dims, setDims] = useState({ w: 800, h: 280 })
+  const [dims, setDims] = useState({ w: 800, h: 420 })
   const [mounted, setMounted] = useState(false)
+  const [hoveredTopic, setHoveredTopic] = useState<{ topic: Topic; x: number; y: number; r: number } | null>(null)
 
   useEffect(() => {
     setMounted(true)
     const update = () => {
       const w = Math.min(window.innerWidth - 48, 1100)
-      setDims({ w, h: 280 })
+      setDims({ w, h: 420 })
     }
     update()
     window.addEventListener("resize", update)
@@ -83,7 +84,7 @@ export function BubbleChart({
     [topics, dims.w, dims.h]
   )
 
-  if (!mounted) return <div className="h-[280px]" />
+  if (!mounted) return <div className="h-[420px]" />
 
   return (
     <div className="relative hidden md:block" style={{ width: dims.w, height: dims.h, margin: "0 auto" }}>
@@ -104,7 +105,9 @@ export function BubbleChart({
             }}
             whileHover={{ scale: 1.12 }}
             onClick={() => onBubbleClick(topic.id)}
-            className="absolute flex flex-col items-center justify-center rounded-full border border-white/10 text-center leading-tight cursor-pointer"
+            onMouseEnter={() => setHoveredTopic({ topic, x, y, r })}
+            onMouseLeave={() => setHoveredTopic(null)}
+            className="absolute flex flex-col items-center justify-center rounded-full border border-white/10 text-center leading-tight cursor-pointer px-1"
             style={{
               left: x - r,
               top: y - r,
@@ -113,29 +116,67 @@ export function BubbleChart({
               background: `${color}22`,
               boxShadow: `0 0 20px ${color}33`,
             }}
-            title={`${topic.title} - ${topic.category}`}
           >
             <span
-              className="font-bold drop-shadow-sm"
+              className="font-bold drop-shadow-sm line-clamp-1"
               style={{
-                fontSize: r > 40 ? 11 : 9,
+                fontSize: r > 60 ? 12 : r > 40 ? 10 : 8,
                 color,
-                maxWidth: r * 1.6,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
+                maxWidth: r * 1.8,
               }}
             >
-              {topic.title.length > (r > 40 ? 18 : 10)
-                ? topic.title.slice(0, r > 40 ? 16 : 8) + "..."
-                : topic.title}
+              {topic.title}
             </span>
-            <span className="text-[9px] font-mono opacity-70" style={{ color }}>
+            {topic.topComment && (
+              <span
+                className="line-clamp-2 mt-0.5 opacity-90"
+                style={{
+                  fontSize: r > 60 ? 9 : r > 40 ? 8 : 7,
+                  color,
+                  maxWidth: r * 1.8,
+                }}
+              >
+                {topic.topComment}
+              </span>
+            )}
+            <span className="text-[9px] font-mono opacity-70 mt-0.5" style={{ color }}>
               {topic.agentCount}
             </span>
           </motion.button>
         )
       })}
+
+      {/* Hover 패널 */}
+      <AnimatePresence>
+        {hoveredTopic && (
+          <motion.div
+            initial={{ opacity: 0, y: 4, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.96 }}
+            transition={{ duration: 0.15 }}
+            className="absolute z-50 pointer-events-none w-72 rounded-xl border border-border/60 bg-card/95 backdrop-blur-xl p-4 shadow-xl"
+            style={{
+              left: Math.min(Math.max(0, hoveredTopic.x - 72), dims.w - 288),
+              top: Math.max(0, hoveredTopic.y - hoveredTopic.r - 140),
+            }}
+          >
+            <div className="space-y-2">
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                {hoveredTopic.topic.category}
+              </span>
+              <h4 className="text-sm font-bold text-foreground leading-snug">{hoveredTopic.topic.title}</h4>
+              {hoveredTopic.topic.topComment && (
+                <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">
+                  {hoveredTopic.topic.topComment}
+                </p>
+              )}
+              <p className="text-[10px] font-mono text-muted-foreground">
+                {hoveredTopic.topic.agentCount} agents · {hoveredTopic.topic.commentCount} comments
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

@@ -6,8 +6,18 @@ import type { OXState, OXAgentState, OXHistoryEntry } from "@/lib/api/games"
 import type { OXPhase } from "@/components/ox/round-info-panel"
 import type { OXAgent } from "@/components/ox/ox-main-panel"
 import type { OXLogEntry } from "@/components/ox/ox-terminal-log"
+import { hashString, shuffleWithSeed } from "@/lib/utils"
 
 const DEFAULT_AVATAR = "/images/cards/ox_game_prop.jpg"
+
+/** OX 게임 prop 이미지 5장 (랜덤 배정, 중복 없음) */
+const OX_PROPS = [
+  "/images/cards/ox_prop_1.png",
+  "/images/cards/ox_prop_2.png",
+  "/images/cards/ox_prop_3.png",
+  "/images/cards/ox_prop_4.png",
+  "/images/cards/ox_prop_5.png",
+]
 
 /** 백엔드 phase → 프론트 OXPhase */
 export function mapOXPhase(phase: string): OXPhase {
@@ -29,12 +39,19 @@ export function mapOXPhase(phase: string): OXPhase {
 
 /** ox_state.agents → OXAgent[] (표시 순서: O 먼저, 그다음 X, null 마지막) */
 export function mapOXAgentsToUI(agents: Record<string, OXAgentState & { name?: string }>): OXAgent[] {
+  const agentIds = Object.keys(agents).sort()
+  const seed = hashString(agentIds.join(","))
+  const shuffledProps = shuffleWithSeed(OX_PROPS, seed)
+  const imageByIndex = Object.fromEntries(
+    agentIds.map((id, i) => [id, shuffledProps[i % shuffledProps.length] ?? DEFAULT_AVATAR])
+  )
+
   const list = Object.entries(agents).map(([id, a]) => {
     const choice = a.final_choice ?? a.first_choice ?? null
     return {
       id,
       name: (a as OXAgentState & { name?: string }).name ?? id,
-      characterImage: DEFAULT_AVATAR,
+      characterImage: imageByIndex[id] ?? DEFAULT_AVATAR,
       choice: choice === "O" || choice === "X" ? choice : null,
       switchAvailable: a.switch_available ?? true,
       switched: a.switch_used ?? false,
