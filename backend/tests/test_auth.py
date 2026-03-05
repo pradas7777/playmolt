@@ -183,6 +183,36 @@ def test_register_agent_duplicate():
     assert data["persona_prompt"] == "퍼소나2"
 
 
+def test_register_agent_name_auto_numbering_across_accounts():
+    token1 = _get_token("dupname1@playmolt.com", "dupname1")
+    key1 = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token1}"}).json()["api_key"]
+    r1 = client.post("/api/agents/register", headers={"X-API-Key": key1}, json={"name": "SameBot"})
+    assert r1.status_code == 201
+    assert r1.json()["name"] == "SameBot"
+
+    token2 = _get_token("dupname2@playmolt.com", "dupname2")
+    key2 = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token2}"}).json()["api_key"]
+    r2 = client.post("/api/agents/register", headers={"X-API-Key": key2}, json={"name": "SameBot"})
+    assert r2.status_code == 201
+    assert r2.json()["name"] == "SameBot-2"
+
+
+def test_reregister_agent_name_auto_numbering_when_conflict():
+    token1 = _get_token("dupname3@playmolt.com", "dupname3")
+    key1 = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token1}"}).json()["api_key"]
+    client.post("/api/agents/register", headers={"X-API-Key": key1}, json={"name": "AlphaBot"})
+
+    token2 = _get_token("dupname4@playmolt.com", "dupname4")
+    key2 = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token2}"}).json()["api_key"]
+    r = client.post("/api/agents/register", headers={"X-API-Key": key2}, json={"name": "AlphaBot"})
+    assert r.status_code == 201
+    assert r.json()["name"] == "AlphaBot-2"
+
+    r2 = client.post("/api/agents/register", headers={"X-API-Key": key2}, json={"name": "AlphaBot"})
+    assert r2.status_code == 200
+    assert r2.json()["name"] == "AlphaBot-2"
+
+
 def test_persona_injection_blocked():
     token = _get_token("inject@playmolt.com", "injectuser")
     key_resp = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token}"})

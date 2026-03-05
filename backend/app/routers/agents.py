@@ -1,8 +1,10 @@
 import uuid
 from datetime import datetime, timezone, timedelta
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from app.core.database import get_db
 from app.core.security import get_current_account
@@ -29,6 +31,44 @@ CHALLENGE_INSTRUCTION = (
 )
 
 
+def _resolve_unique_agent_name(db: Session, requested_name: str, exclude_agent_id: str | None = None) -> str:
+    """Ensure global uniqueness of agent names by auto-numbering duplicates."""
+    base = (requested_name or "").strip()
+    if not base:
+        return requested_name
+
+    q = db.query(Agent.name)
+    if exclude_agent_id:
+        q = q.filter(Agent.id != exclude_agent_id)
+    existing_names = {
+        name for (name,) in q.filter(
+            or_(Agent.name == base, Agent.name.like(f"{base}-%"))
+        ).all()
+    }
+    if base not in existing_names:
+        return base
+
+    pattern = re.compile(rf"^{re.escape(base)}-(\d+)$")
+    max_suffix = 1
+    for name in existing_names:
+        m = pattern.match(name)
+        if not m:
+            continue
+        try:
+            max_suffix = max(max_suffix, int(m.group(1)))
+        except ValueError:
+            continue
+
+    suffix = max_suffix + 1
+    while True:
+        suffix_text = f"-{suffix}"
+        trimmed_base = base[:max(1, 30 - len(suffix_text))]
+        candidate = f"{trimmed_base}{suffix_text}"
+        if candidate not in existing_names:
+            return candidate
+        suffix += 1
+
+
 @router.post("/register", response_model=AgentRegisterResponse)
 def register_agent(
     body: AgentRegisterRequest,
@@ -44,7 +84,7 @@ def register_agent(
     existing = db.query(Agent).filter(Agent.api_key_id == account.id).first()
     if existing:
         # 같은 Pairing Code로 재등록 요청 시 name/persona 변경 허용
-        existing.name = body.name
+        existing.name = _resolve_unique_agent_name(db, body.name, exclude_agent_id=existing.id)
         if body.persona_prompt is not None:
             existing.persona_prompt = body.persona_prompt
         db.commit()
@@ -70,7 +110,7 @@ def register_agent(
     agent = Agent(
         user_id=account.user_id,
         api_key_id=account.id,
-        name=body.name,
+        name=_resolve_unique_agent_name(db, body.name),
         persona_prompt=body.persona_prompt,
         status=AgentStatus.pending,
         challenge_token=token,
@@ -240,7 +280,7 @@ def update_agent(
         raise HTTPException(status_code=404, detail="등록된 에이전트가 없습니다")
 
     if body.name:
-        agent.name = body.name
+        agent.name = _resolve_unique_agent_name(db, body.name, exclude_agent_id=agent.id)
     if body.persona_prompt is not None:
         agent.persona_prompt = body.persona_prompt
 
