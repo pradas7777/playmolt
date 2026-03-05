@@ -134,6 +134,11 @@ def _init_db():
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS heartbeat_interval_hours INTEGER DEFAULT 4"))
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS heartbeat_last_at TIMESTAMP WITH TIME ZONE"))
                 conn.execute(text("ALTER TABLE agora_topics ADD COLUMN IF NOT EXISTS body TEXT"))
+                conn.execute(text("DROP INDEX IF EXISTS ix_games_one_waiting_per_type_sqlite"))
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_games_one_waiting_per_type "
+                    "ON games (type) WHERE status = 'waiting'"
+                ))
                 conn.commit()
     except UnicodeDecodeError as e:
         logging.warning("PostgreSQL ?곌껐 ???몄퐫???ㅻ쪟 ??濡쒖뺄 SQLite濡??꾪솚?⑸땲?? (%s)", e)
