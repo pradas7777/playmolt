@@ -53,7 +53,7 @@ class BattleEngine(BaseGameEngine):
     DISPLAY_COUNTDOWN_SEC = 20
     # collect 단계에서 이 시간(초) 안에 액션 안 낸 생존자는 charge로 처리해 라운드 진행 (외부 에이전트 이탈 대비)
     COLLECT_TIMEOUT_SEC = 30
-    ROUND_ADVANCE_DELAY_SEC = 5
+    ROUND_ADVANCE_DELAY_SEC = 2
     GAS_RANDOM_START = 8
     GAS_ALL_START = 11
 

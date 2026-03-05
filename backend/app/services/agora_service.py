@@ -12,6 +12,7 @@ from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
+from app.models.point_log import PointLog
 from app.models.agora import (
     AgoraTopic,
     AgoraComment,
@@ -25,6 +26,29 @@ BOARD_EXPIRES_DAYS = {"human": 7, "agent": 2}
 WORLDCUP_ROUND_HOURS = 2
 CATEGORIES = ("자유", "과학&기술", "예술&문화", "정치&경제", "시사&연예")
 DUPLICATE_WINDOW_SEC = 60  # 동일 내용 중복 제출 방지: 이 시간(초) 이내 동일 요청 거부
+POINT_TOPIC_CREATE = 10
+POINT_COMMENT_CREATE = 5
+POINT_WORLDCUP_VOTE = 5
+POINT_REACTION_CAST = 1
+POINT_REACTION_RECEIVED_AGREE = 1
+POINT_REACTION_RECEIVED_DISAGREE = -1
+
+
+def _award_agent_points(db: Session, agent_id: str, delta: int, reason: str) -> None:
+    if not agent_id or delta == 0:
+        return
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
+        return
+    agent.total_points = (agent.total_points or 0) + delta
+    db.add(
+        PointLog(
+            agent_id=agent.id,
+            game_id=None,
+            delta=delta,
+            reason=reason,
+        )
+    )
 
 
 def create_topic(
@@ -82,6 +106,8 @@ def create_topic(
         expires_at=expires_at,
     )
     db.add(topic)
+    if author_type == "agent":
+        _award_agent_points(db, author_id, POINT_TOPIC_CREATE, f"agora_topic_create_{board}")
     db.commit()
     db.refresh(topic)
     return topic
@@ -161,6 +187,7 @@ def create_comment(
     )
     db.add(comment)
     topic.temperature += 1
+    _award_agent_points(db, agent_id, POINT_COMMENT_CREATE, "agora_comment_create")
     db.commit()
     db.refresh(comment)
     return comment
@@ -209,6 +236,7 @@ def create_reply(
     )
     db.add(reply)
     topic.temperature += 1
+    _award_agent_points(db, agent_id, POINT_COMMENT_CREATE, "agora_reply_create")
     db.commit()
     db.refresh(reply)
     return reply
@@ -237,10 +265,23 @@ def react_comment(
         raise ValueError("ALREADY_REACTED")
     r = AgoraReaction(comment_id=comment_id, agent_id=agent_id, reaction=reaction)
     db.add(r)
+    _award_agent_points(db, agent_id, POINT_REACTION_CAST, f"agora_reaction_cast_{reaction}")
     if reaction == "agree":
         comment.agree_count += 1
+        _award_agent_points(
+            db,
+            comment.agent_id,
+            POINT_REACTION_RECEIVED_AGREE,
+            "agora_reaction_received_agree",
+        )
     else:
         comment.disagree_count += 1
+        _award_agent_points(
+            db,
+            comment.agent_id,
+            POINT_REACTION_RECEIVED_DISAGREE,
+            "agora_reaction_received_disagree",
+        )
     db.commit()
     db.refresh(r)
     return r
@@ -535,6 +576,7 @@ def vote_match(
         match.agree_count += 1
     else:
         match.disagree_count += 1
+    _award_agent_points(db, agent_id, POINT_WORLDCUP_VOTE, "agora_worldcup_vote")
     db.commit()
 
 

@@ -347,6 +347,48 @@ def test_agents_leaderboard_sorted_by_points():
     assert [entry["rank"] for entry in data] == [1, 2]
 
 
+def test_get_agent_public_profile():
+    from app.models.user import User
+    from app.models.api_key import ApiKey
+    from app.models.agent import Agent, AgentStatus
+
+    db = TestingSession()
+    try:
+        u = User(email="public_agent@test.com", username="publicagent", password_hash=None)
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+
+        k = ApiKey(user_id=u.id, key="pl_live_public_agent")
+        db.add(k)
+        db.commit()
+        db.refresh(k)
+
+        a = Agent(
+            user_id=u.id,
+            api_key_id=k.id,
+            name="PublicBot",
+            persona_prompt="public profile persona",
+            status=AgentStatus.active,
+            total_points=77,
+        )
+        db.add(a)
+        db.commit()
+        db.refresh(a)
+        agent_id = a.id
+    finally:
+        db.close()
+
+    r = client.get(f"/api/agents/{agent_id}/public")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["id"] == agent_id
+    assert data["name"] == "PublicBot"
+    assert data["persona_prompt"] == "public profile persona"
+    assert data["total_points"] == 77
+    assert "total_stats" in data
+
+
 def test_my_recent_games_returns_finished_games_only():
     """GET /api/agents/me/games 가 finished 게임만, 최신순으로 반환하는지 확인."""
     from app.models.user import User

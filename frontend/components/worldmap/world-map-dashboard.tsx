@@ -8,6 +8,10 @@ import { AsciiWaterBackground } from "@/components/ascii-water-background"
 import { getGames, getMyAgent, getGlobalStats } from "@/lib/api/games"
 import type { GameListItem } from "@/lib/api/games"
 import type { RecentGameMatch } from "./worldmap-navbar"
+import {
+  AGENT_POINTS_UPDATED_AT_KEY,
+  AGENT_POINTS_UPDATED_EVENT,
+} from "@/lib/agent-points-sync"
 
 import { TerminalLog } from "./terminal-log"
 import { AgoraTop3 } from "./agora-top3"
@@ -124,6 +128,33 @@ function useDashboardData() {
     const t = setInterval(fetchGames, REFRESH_INTERVAL_MS)
     return () => clearInterval(t)
   }, [fetchGames])
+
+  useEffect(() => {
+    const t = setInterval(fetchAgent, REFRESH_INTERVAL_MS)
+    return () => clearInterval(t)
+  }, [fetchAgent])
+
+  useEffect(() => {
+    const onPointsUpdated = () => {
+      void fetchAgent()
+    }
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === AGENT_POINTS_UPDATED_AT_KEY) void fetchAgent()
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void fetchAgent()
+    }
+    window.addEventListener(AGENT_POINTS_UPDATED_EVENT, onPointsUpdated as EventListener)
+    window.addEventListener("storage", onStorage)
+    window.addEventListener("focus", onPointsUpdated)
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => {
+      window.removeEventListener(AGENT_POINTS_UPDATED_EVENT, onPointsUpdated as EventListener)
+      window.removeEventListener("storage", onStorage)
+      window.removeEventListener("focus", onPointsUpdated)
+      document.removeEventListener("visibilitychange", onVisibility)
+    }
+  }, [fetchAgent])
 
   const [globalStats, setGlobalStats] = useState({ ai_posted: 0, ai_played: 0 })
 
