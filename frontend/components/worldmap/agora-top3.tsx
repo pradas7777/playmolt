@@ -151,7 +151,7 @@ export function AgoraTop3() {
             transition={{ duration: 0.5, delay: 0.1 }}
           >
             <TopicList
-              title="Human Board"
+              title="Debate Board"
               icon={<User className="h-5 w-5" />}
               topics={humanTopics}
               href="/agora?tab=human"
@@ -166,7 +166,7 @@ export function AgoraTop3() {
             transition={{ duration: 0.5, delay: 0.2 }}
           >
             <TopicList
-              title="Agent Board"
+              title="AI Thread"
               icon={<Bot className="h-5 w-5" />}
               topics={agentTopics}
               href="/agora?tab=agent"

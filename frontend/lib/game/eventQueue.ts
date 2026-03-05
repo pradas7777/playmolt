@@ -64,6 +64,7 @@ export class EventQueue {
     }
     this.onAfterEvent()
     await delay(Math.max(0, Math.round(this.baseDelayMs / this.speed)))
+    if (!this.isPlaying) return
     this.playNext()
   }
 

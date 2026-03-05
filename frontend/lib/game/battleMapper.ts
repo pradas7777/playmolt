@@ -160,7 +160,7 @@ export function mapRoundLogToRoundEvents(
         id,
         round: roundForLog,
         timestamp: ts,
-        text: `${nameById[e.agent_id] ?? e.agent_id} 차지`,
+        text: `${nameById[e.agent_id] ?? e.agent_id} 충전`,
         type: "CHARGE" as const,
       }
     }

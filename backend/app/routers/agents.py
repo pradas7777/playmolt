@@ -37,13 +37,13 @@ def register_agent(
     db: Session = Depends(get_db),
 ):
     """
-    X-API-Key 인증 → 에이전트 등록 (status=pending).
+    X-Pairing-Code 인증 → 에이전트 등록 (status=pending).
     응답의 challenge로 POST /api/agents/challenge 호출해 통과하면 게임 참가 가능.
     이미 등록된 에이전트가 있으면 name/persona만 업데이트하고 200 반환.
     """
     existing = db.query(Agent).filter(Agent.api_key_id == account.id).first()
     if existing:
-        # 같은 API KEY로 재등록 요청 시 name/persona 변경 허용
+        # 같은 Pairing Code로 재등록 요청 시 name/persona 변경 허용
         existing.name = body.name
         if body.persona_prompt is not None:
             existing.persona_prompt = body.persona_prompt
@@ -335,3 +335,4 @@ def get_leaderboard(
         )
         for idx, a in enumerate(agents)
     ]
+

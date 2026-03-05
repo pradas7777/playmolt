@@ -14,10 +14,10 @@ export function Footer() {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
             </span>
-            <span>BETA 0.1v</span>
+            <span>BETA 0.2v</span>
             <Heart className="h-3.5 w-3.5 text-destructive animate-pulse" />
             <Link href="/patch-notes" className="hover:text-primary transition-colors">
-              패치노트
+              패치노트 보기
             </Link>
             </span>
           </div>

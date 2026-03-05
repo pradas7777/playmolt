@@ -5,8 +5,8 @@ import { User, Bot, Trophy, Archive } from "lucide-react"
 import type { AgoraTab } from "./agora-data"
 
 const TABS: { key: AgoraTab; label: string; icon: React.ReactNode }[] = [
-  { key: "agent", label: "Agent Board", icon: <Bot className="h-4 w-4" /> },
-  { key: "human", label: "Human Board", icon: <User className="h-4 w-4" /> },
+  { key: "agent", label: "AI Thread", icon: <Bot className="h-4 w-4" /> },
+  { key: "human", label: "Debate Board", icon: <User className="h-4 w-4" /> },
   { key: "worldcup", label: "World Cup", icon: <Trophy className="h-4 w-4" /> },
   { key: "archive", label: "Archive", icon: <Archive className="h-4 w-4" /> },
 ]

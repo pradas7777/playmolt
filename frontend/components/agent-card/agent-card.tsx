@@ -1,17 +1,28 @@
 "use client"
 
-import { useState, forwardRef, useImperativeHandle, type RefObject } from "react"
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle, type RefObject } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import Image from "next/image"
 import { agentThumbFromId, agentThumbFromPoints } from "@/lib/api/agora"
 
-/* ─── types ─── */
+/* types */
 
 interface GameRecord {
   game: string
   icon: string
   wins: number
   losses: number
+}
+
+type PercentPoint = {
+  x: number
+  y: number
+}
+
+type BattleUiPositions = {
+  lastAction?: PercentPoint
+  hp?: PercentPoint
+  energy?: PercentPoint
 }
 
 export interface AgentCardProps {
@@ -30,6 +41,7 @@ export interface AgentCardProps {
   hp?: number
   energy?: number
   lastAction?: string
+  battleUiPositions?: BattleUiPositions
   // ox
   side?: "O" | "X" | null
   comment?: string
@@ -61,61 +73,96 @@ export interface AgentCardProps {
 }
 
 export interface AgentCardHandle {
-  triggerAttack: (targetRef: RefObject<AgentCardHandle | null>) => void
-  shake: () => void
+  triggerAttack: (targetRef: RefObject<AgentCardHandle | null>, intensity?: number) => void
+  triggerCharge: (level?: number) => void
+  showDamage: (amount: number, kind?: "attack" | "gas") => void
+  shake: (mode?: "default" | "gas") => void
   triggerAccusation: () => void
   reset: () => void
 }
 
-/* ─── sub-components per game type ─── */
+/* sub-components per game type */
 
 function BattleStats({
   lastAction,
   hp = 4,
   energy = 3,
+  positions,
 }: {
   lastAction?: string
   hp: number
   energy: number
+  positions?: BattleUiPositions
 }) {
+  const p = {
+    lastAction: { x: 5, y: 8 },
+    hp: { x: 5, y: 72 },
+    energy: { x: 5, y: 88 },
+    ...positions,
+  }
+  const clampPct = (v: number) => `${Math.max(0, Math.min(100, v))}%`
+  const actionTone =
+    lastAction === "ATTACK"
+      ? "text-red-300"
+      : lastAction === "CHARGE"
+        ? "text-teal-400"
+        : lastAction === "DEFEND"
+          ? "text-sky-300"
+          : "text-gray-300"
+  const actionLabel =
+    lastAction === "ATTACK"
+      ? "공격"
+      : lastAction === "CHARGE"
+        ? "충전"
+        : lastAction === "DEFEND"
+          ? "방어"
+          : lastAction
+
   return (
-    <div className="flex h-full flex-col justify-between py-2 pr-2">
+    <div className="relative h-full w-full">
       {lastAction && (
-        <p className="truncate text-[10px] font-mono text-amber-200/90 leading-tight">
-          {lastAction}
+        <p
+          className={`absolute truncate text-[clamp(14px,3.2vw,44px)] font-['Pretendard'] font-bold leading-tight ${actionTone}`}
+          style={{ left: clampPct(p.lastAction.x), top: clampPct(p.lastAction.y), maxWidth: "95%" }}
+        >
+          {actionLabel}
         </p>
       )}
-      <div className="mt-auto flex flex-col gap-1.5">
-        <div className="flex items-center gap-0.5">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <motion.span
-              key={i}
-              className={`text-sm ${i < hp ? "text-orange-400" : "text-white/20"}`}
-              animate={
-                i >= hp && i < hp + 1
-                  ? { scale: [1, 1.3, 0.8, 1], opacity: [1, 0.5, 0.3] }
-                  : {}
-              }
-              transition={{ duration: 0.4 }}
-            >
-              {i < hp ? "\u2665" : "\u2661"}
-            </motion.span>
-          ))}
-        </div>
-        <div className="flex items-center gap-1">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <motion.span
-              key={i}
-              className={`inline-block h-2.5 w-2.5 rounded-full border ${
-                i < energy
-                  ? "border-teal-400 bg-teal-400 shadow-[0_0_6px_rgba(45,212,191,0.6)]"
-                  : "border-white/20 bg-transparent"
-              }`}
-              animate={i < energy ? { scale: [1, 1.15, 1] } : {}}
-              transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.3 }}
-            />
-          ))}
-        </div>
+      <div
+        className="absolute flex items-center gap-0.5"
+        style={{ left: clampPct(p.hp.x), top: clampPct(p.hp.y) }}
+      >
+        {Array.from({ length: 4 }).map((_, i) => (
+          <motion.span
+            key={i}
+            className={`text-[clamp(14px,2.2vw,34px)] ${i < hp ? "text-red-400" : "text-white/20"}`}
+            animate={
+              i >= hp && i < hp + 1
+                ? { scale: [1, 1.3, 0.8, 1], opacity: [1, 0.5, 0.3] }
+                : {}
+            }
+            transition={{ duration: 0.4 }}
+          >
+            {i < hp ? "\u2665" : "\u2661"}
+          </motion.span>
+        ))}
+      </div>
+      <div
+        className="absolute flex items-center gap-1"
+        style={{ left: clampPct(p.energy.x), top: clampPct(p.energy.y) }}
+      >
+        {Array.from({ length: 3 }).map((_, i) => (
+          <motion.span
+            key={i}
+            className={`inline-block h-[clamp(8px,1.1vw,16px)] w-[clamp(8px,1.1vw,16px)] rounded-full border ${
+              i < energy
+                ? "border-teal-400 bg-teal-400 shadow-[0_0_6px_rgba(45,212,191,0.6)]"
+                : "border-white/20 bg-transparent"
+            }`}
+            animate={i < energy ? { scale: [1, 1.15, 1] } : {}}
+            transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.3 }}
+          />
+        ))}
       </div>
     </div>
   )
@@ -249,7 +296,7 @@ function TrialStats({
   )
 }
 
-/* ─── back side ─── */
+/* back side */
 
 const FALLBACK_AVATAR = "/images/cards/agent_profile_prop.jpg"
 
@@ -282,7 +329,7 @@ function CardBack({
 
   return (
     <div className="absolute inset-0">
-      {/* Layer 1: Portrait (behind frame) - 에이전트별 아바타 */}
+      {/* Layer 1: Portrait (behind frame) */}
       <div
         className="absolute overflow-hidden"
         style={{ top: "12%", left: "5%", width: "35%", height: "75%", zIndex: 1 }}
@@ -370,7 +417,7 @@ function CardBack({
   )
 }
 
-/* ─── main card ─── */
+/* main card */
 
 const GLOW_COLORS: Record<string, string> = {
   battle: "rgba(249,115,22,0.5)",
@@ -395,6 +442,7 @@ export const AgentCard = forwardRef<AgentCardHandle, AgentCardProps>(function Ag
     hp = 4,
     energy = 3,
     lastAction,
+    battleUiPositions,
     side,
     comment,
     switched,
@@ -418,7 +466,47 @@ export const AgentCard = forwardRef<AgentCardHandle, AgentCardProps>(function Ag
 
   const [shaking, setShaking] = useState(false)
   const [attacking, setAttacking] = useState(false)
+  const [attackIntensity, setAttackIntensity] = useState(1)
   const [flashHit, setFlashHit] = useState(false)
+  const [flashHitColor, setFlashHitColor] = useState<"attack" | "gas">("attack")
+  const [chargeFxLevel, setChargeFxLevel] = useState(0)
+  const [chargeBurst, setChargeBurst] = useState(false)
+  const [damagePopup, setDamagePopup] = useState<{ id: number; amount: number; kind: "attack" | "gas" } | null>(null)
+  const [displayHp, setDisplayHp] = useState(hp)
+  const hpAnimTokenRef = useRef(0)
+  const displayHpRef = useRef(hp)
+
+  useEffect(() => {
+    displayHpRef.current = displayHp
+  }, [displayHp])
+
+  useEffect(() => {
+    if (gameType !== "battle") {
+      setDisplayHp(hp)
+      displayHpRef.current = hp
+      return
+    }
+    const startHp = displayHpRef.current
+    if (hp >= startHp) {
+      setDisplayHp(hp)
+      displayHpRef.current = hp
+      return
+    }
+    const token = ++hpAnimTokenRef.current
+    const stepDown = (current: number) => {
+      if (hpAnimTokenRef.current !== token) return
+      const next = current - 1
+      setDisplayHp(next)
+      displayHpRef.current = next
+      if (next > hp) {
+        setTimeout(() => stepDown(next), 170)
+      }
+    }
+    setTimeout(() => stepDown(startHp), 80)
+    return () => {
+      hpAnimTokenRef.current += 1
+    }
+  }, [gameType, hp])
 
   // accusation sequence states
   const [accPhase, setAccPhase] = useState<
@@ -431,14 +519,29 @@ export const AgentCard = forwardRef<AgentCardHandle, AgentCardProps>(function Ag
   const [accShake, setAccShake] = useState(false)
 
   useImperativeHandle(ref, () => ({
-    triggerAttack(targetRef: RefObject<AgentCardHandle | null>) {
+    triggerAttack(targetRef: RefObject<AgentCardHandle | null>, intensity = 1) {
+      const clamped = Math.max(1, Math.min(4, intensity))
+      setAttackIntensity(clamped)
       setAttacking(true)
       setTimeout(() => {
         setAttacking(false)
-        targetRef.current?.shake()
+        setAttackIntensity(1)
+        targetRef.current?.shake("default")
       }, 300)
     },
-    shake() {
+    triggerCharge(level = 1) {
+      setChargeFxLevel(Math.max(1, Math.min(3, level)))
+      setChargeBurst(true)
+      setTimeout(() => setChargeBurst(false), 650)
+      setTimeout(() => setChargeFxLevel(0), 900)
+    },
+    showDamage(amount: number, kind: "attack" | "gas" = "attack") {
+      if (amount <= 0) return
+      setDamagePopup({ id: Date.now(), amount, kind })
+      setTimeout(() => setDamagePopup(null), 700)
+    },
+    shake(mode: "default" | "gas" = "default") {
+      setFlashHitColor(mode === "gas" ? "gas" : "attack")
       setFlashHit(true)
       setShaking(true)
       setTimeout(() => {
@@ -484,7 +587,11 @@ export const AgentCard = forwardRef<AgentCardHandle, AgentCardProps>(function Ag
       setAccShake(false)
       setShaking(false)
       setAttacking(false)
+      setAttackIntensity(1)
       setFlashHit(false)
+      setChargeFxLevel(0)
+      setChargeBurst(false)
+      setDamagePopup(null)
     },
   }))
 
@@ -497,10 +604,10 @@ export const AgentCard = forwardRef<AgentCardHandle, AgentCardProps>(function Ag
         opacity: dimmed
           ? 0.3
           : (isDead || accDead)
-            ? 0.5
+            ? 0.2
             : isActive
               ? 1
-              : 0.75,
+              : 0.90,
         y: 0,
         scale: accPhase === "spotlight"
           ? 1.08
@@ -508,25 +615,25 @@ export const AgentCard = forwardRef<AgentCardHandle, AgentCardProps>(function Ag
             ? 1.08
             : 1,
         rotate: (isDead || accDead) ? -3 : 0,
-        x: attacking ? -40 : 0,
+        x: attacking ? -28 - attackIntensity * 10 : 0,
       }}
       transition={{
         opacity: { duration: 0.3 },
         y: { duration: 0.4, delay: index * 0.1 },
         scale: { type: "spring", stiffness: 300, damping: 25 },
-        x: { type: "spring", stiffness: 500, damping: 20 },
+        x: { type: "spring", stiffness: 520, damping: 18 },
       }}
       className="relative cursor-pointer select-none"
       style={{
-        width: 400,
-        height: 300,
+        width: "clamp(130px, 26vw, 400px)",
+        aspectRatio: "4 / 3",
         perspective: 1000,
         filter: (isDead || accDead) ? "grayscale(1)" : undefined,
         zIndex: accPhase ? 50 : isActive && !(isDead || accDead) ? 10 : undefined,
       }}
       onClick={(isDead || accDead || accPhase) ? undefined : onFlip}
     >
-      {/* active glow — 턴 활성 강조 */}
+      {/* active glow */}
       {isActive && !isDead && (
         <motion.div
           className="absolute -inset-2 rounded-xl z-0 pointer-events-none"
@@ -538,6 +645,28 @@ export const AgentCard = forwardRef<AgentCardHandle, AgentCardProps>(function Ag
           }}
         />
       )}
+
+      <AnimatePresence>
+        {attacking && (
+          <motion.div
+            initial={{ opacity: 0, x: -6, scale: 0.9 }}
+            animate={{ opacity: 1, x: 18 + attackIntensity * 6, scale: 1 + attackIntensity * 0.05 }}
+            exit={{ opacity: 0, x: 28 }}
+            transition={{ duration: 0.24 }}
+            className="absolute inset-y-8 right-[-12px] w-14 rounded-full pointer-events-none"
+            style={{
+              zIndex: 12,
+              background:
+                attackIntensity >= 4
+                  ? "linear-gradient(90deg, rgba(251,146,60,0.0), rgba(251,146,60,0.95))"
+                  : attackIntensity >= 3
+                    ? "linear-gradient(90deg, rgba(56,189,248,0.0), rgba(56,189,248,0.9))"
+                    : "linear-gradient(90deg, rgba(253,224,71,0.0), rgba(253,224,71,0.9))",
+              boxShadow: "0 0 20px rgba(255,255,255,0.35)",
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* shake wrapper */}
       <motion.div
@@ -577,7 +706,7 @@ export const AgentCard = forwardRef<AgentCardHandle, AgentCardProps>(function Ag
               {/* dead overlay */}
               {(isDead || accDead) && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-10">
-                  <span className="text-4xl">{"💀"}</span>
+                  <span className="text-4xl">{"??"}</span>
                 </div>
               )}
             </div>
@@ -594,13 +723,13 @@ export const AgentCard = forwardRef<AgentCardHandle, AgentCardProps>(function Ag
             {/* Layer 3: Stats & UI overlay (above frame) */}
             <div
               className="absolute inset-0 flex"
-              style={{ zIndex: 3, padding: "6% 4%" }}
+              style={{ zIndex: 3, padding: "10% 10%" }}
             >
               {/* left spacer for portrait area */}
               <div className="w-[45%] shrink-0 flex flex-col justify-end">
                 {/* name plate */}
-                <div className="bg-gradient-to-t from-black/80 to-transparent px-2 py-1 -mx-1 -mb-1 rounded-b-sm">
-                  <span className="text-[10px] font-bold text-white drop-shadow-md truncate block">
+                <div className="bg-gradient-to-t from-black/100 to-transparent px-2 py-0.5 -mx-1 -mb-1 rounded-b-sm">
+                  <span className="text-[clamp(10px,1.2vw,18px)] font-bold text-white drop-shadow-md truncate block">
                     {agentName}
                   </span>
                 </div>
@@ -609,7 +738,12 @@ export const AgentCard = forwardRef<AgentCardHandle, AgentCardProps>(function Ag
               {/* right: stats area */}
               <div className="w-[55%] h-full pl-2">
                 {gameType === "battle" && (
-                  <BattleStats lastAction={lastAction} hp={hp} energy={energy} />
+                  <BattleStats
+                    lastAction={lastAction}
+                    hp={displayHp}
+                    energy={energy}
+                    positions={battleUiPositions}
+                  />
                 )}
                 {gameType === "ox" && (
                   <OxStats side={side} comment={comment} switched={switched} />
@@ -636,13 +770,92 @@ export const AgentCard = forwardRef<AgentCardHandle, AgentCardProps>(function Ag
                   animate={{ opacity: 0.4 }}
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.15 }}
-                  className="absolute inset-0 rounded-lg bg-orange-500 pointer-events-none"
-                  style={{ zIndex: 4 }}
+                  className="absolute inset-0 rounded-lg pointer-events-none"
+                  style={{
+                    zIndex: 4,
+                    backgroundColor:
+                      flashHitColor === "gas" ? "rgba(168,85,247,0.65)" : "rgba(249,115,22,0.55)",
+                  }}
                 />
               )}
             </AnimatePresence>
 
-            {/* ── Accusation overlays ── */}
+            {/* charge pulse / burst */}
+            <AnimatePresence>
+              {(chargeFxLevel > 0 || chargeBurst) && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: [0.2, 0.7, 0.25] }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.6 }}
+                  className="absolute inset-0 rounded-lg pointer-events-none"
+                  style={{ zIndex: 4 }}
+                >
+                  <motion.div
+                    className="absolute inset-2 rounded-lg border-2 border-cyan-300/90"
+                    animate={{ scale: [0.95, 1.05, 1], opacity: [0.35, 0.9, 0.35] }}
+                    transition={{ duration: 0.55 }}
+                  />
+                  {Array.from({ length: 7 }).map((_, i) => (
+                    <motion.span
+                      key={`charge-p-${i}`}
+                      className="absolute h-1.5 w-1.5 rounded-full bg-cyan-300"
+                      style={{ left: `${15 + i * 11}%`, top: `${18 + (i % 3) * 22}%` }}
+                      animate={{ y: [-2, -14 - (i % 2) * 6, -2], opacity: [0, 1, 0], scale: [0.8, 1.2, 0.8] }}
+                      transition={{ duration: 0.8, delay: i * 0.04 }}
+                    />
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* fully charged aura (energy 3) */}
+            <AnimatePresence>
+              {gameType === "battle" && energy >= 3 && !(isDead || accDead) && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: [0.2, 0.45, 0.2] }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 1.2, repeat: Infinity }}
+                  className="absolute inset-1 rounded-lg pointer-events-none"
+                  style={{ zIndex: 4, boxShadow: "0 0 26px rgba(34,211,238,0.85), inset 0 0 18px rgba(125,211,252,0.7)" }}
+                >
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <motion.span
+                      key={`spark-${i}`}
+                      className="absolute text-cyan-100 text-xs"
+                      style={{ left: `${10 + i * 18}%`, top: `${14 + (i % 2) * 55}%` }}
+                      animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1.2, 0.8], rotate: [0, 25, 0] }}
+                      transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.12 }}
+                    >
+                      *
+                    </motion.span>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* floating damage number */}
+            <AnimatePresence>
+              {damagePopup && (
+                <motion.div
+                  key={damagePopup.id}
+                  initial={{ opacity: 0, y: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, y: -30, scale: 1.15 }}
+                  exit={{ opacity: 0, y: -45, scale: 0.9 }}
+                  transition={{ duration: 0.55 }}
+                  className="absolute top-10 right-10 font-black text-[clamp(18px,2.5vw,34px)] pointer-events-none drop-shadow-[0_0_8px_rgba(0,0,0,0.7)]"
+                  style={{
+                    zIndex: 25,
+                    color: damagePopup.kind === "gas" ? "#d8b4fe" : "#fb923c",
+                  }}
+                >
+                  -{damagePopup.amount}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Accusation overlays */}
 
             {/* Step 1: White flash */}
             <AnimatePresence>

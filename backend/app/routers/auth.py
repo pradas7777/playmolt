@@ -20,7 +20,11 @@ from app.core.security import (
     verify_password,
 )
 from app.models.user import User
+from app.models.agent import Agent
 from app.models.api_key import ApiKey
+from app.models.game import Game, GameParticipant, GameStatus
+from app.schemas.agent import AgentMeResponse, GameTypeStats
+from app.services import agora_service
 from app.schemas.auth import (
     ApiKeyResponse,
     ApiKeyInfoResponse,
@@ -115,7 +119,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=UserMeResponse)
 def get_me(current_user: User = Depends(get_current_user)):
-    """현재 로그인한 유저 정보 + API Key 보유 여부."""
+    """현재 로그인한 유저 정보 + Pairing Code 보유 여부."""
     return UserMeResponse(
         id=current_user.id,
         email=current_user.email,
@@ -124,12 +128,76 @@ def get_me(current_user: User = Depends(get_current_user)):
     )
 
 
+def _compute_agent_stats(db: Session, agent_id: str) -> tuple[dict[str, GameTypeStats], GameTypeStats]:
+    rows = (
+        db.query(GameParticipant.result, Game.type)
+        .join(Game, GameParticipant.game_id == Game.id)
+        .filter(GameParticipant.agent_id == agent_id, Game.status == GameStatus.finished)
+        .all()
+    )
+    by_type: dict[str, dict[str, int]] = {}
+    total_wins = total_losses = 0
+    for result, gtype in rows:
+        if result not in ("win", "lose"):
+            continue
+        key = gtype.value if hasattr(gtype, "value") else str(gtype)
+        by_type.setdefault(key, {"wins": 0, "losses": 0})
+        if result == "win":
+            by_type[key]["wins"] += 1
+            total_wins += 1
+        else:
+            by_type[key]["losses"] += 1
+            total_losses += 1
+    game_stats = {}
+    for key, c in by_type.items():
+        w, l = c["wins"], c["losses"]
+        rate = w / (w + l) if (w + l) > 0 else 0.0
+        game_stats[key] = GameTypeStats(wins=w, losses=l, win_rate=round(rate, 4))
+    total_rate = total_wins / (total_wins + total_losses) if (total_wins + total_losses) > 0 else 0.0
+    total_stats = GameTypeStats(wins=total_wins, losses=total_losses, win_rate=round(total_rate, 4))
+    return game_stats, total_stats
+
+
+@router.get("/me/agent", response_model=AgentMeResponse)
+def get_my_agent_by_user(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """JWT 로그인 사용자 기준으로 연결된 agent를 조회."""
+    agent = db.query(Agent).filter(Agent.user_id == current_user.id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="등록된 에이전트가 없습니다.")
+    game_stats, total_stats = _compute_agent_stats(db, agent.id)
+    return AgentMeResponse(
+        id=agent.id,
+        name=agent.name,
+        persona_prompt=agent.persona_prompt,
+        total_points=agent.total_points,
+        status=agent.status.value,
+        created_at=agent.created_at,
+        game_stats=game_stats,
+        total_stats=total_stats,
+    )
+
+
+@router.get("/me/agora-content")
+def get_my_agora_content_by_user(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """JWT 로그인 사용자 기준으로 연결된 agent의 agora 콘텐츠를 조회."""
+    agent = db.query(Agent).filter(Agent.user_id == current_user.id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="등록된 에이전트가 없습니다.")
+    return agora_service.get_agent_agora_content(db, agent.id)
+
+
 @router.get("/api-key", response_model=ApiKeyInfoResponse)
 def get_api_key_info(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """현재 유저의 API Key 존재 여부/마지막 4자리 조회 (전체 키는 반환하지 않음)."""
+    """현재 유저의 Pairing Code 존재 여부/마지막 4자리 조회 (전체 키는 반환하지 않음)."""
     existing = db.query(ApiKey).filter(ApiKey.user_id == current_user.id).first()
     if not existing:
         return ApiKeyInfoResponse(has_api_key=False, api_key_last4=None)
@@ -143,10 +211,10 @@ def issue_api_key(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """JWT 로그인한 유저에게 봇용 API Key 발급 (1유저 1키)"""
+    """JWT 로그인한 유저에게 봇용 Pairing Code 발급 (1유저 1키)"""
     existing = db.query(ApiKey).filter(ApiKey.user_id == current_user.id).first()
     if existing:
-        raise HTTPException(status_code=409, detail="이미 API Key가 발급되어 있습니다. 기존 키를 사용하세요.")
+        raise HTTPException(status_code=409, detail="이미 Pairing Code가 발급되어 있습니다. 기존 키를 사용하세요.")
 
     new_key = ApiKey(user_id=current_user.id, key=generate_api_key())
     db.add(new_key)
@@ -249,3 +317,4 @@ def google_callback(
     redirect_base = settings.GOOGLE_AUTH_SUCCESS_REDIRECT.rstrip("/")
     redirect_url = f"{redirect_base}?access_token={token}"
     return RedirectResponse(url=redirect_url, status_code=302)
+

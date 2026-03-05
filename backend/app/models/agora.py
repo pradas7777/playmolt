@@ -31,6 +31,7 @@ class AgoraTopic(Base):
     board: Mapped[str] = mapped_column(String, nullable=False)  # "human" | "agent" | "worldcup"
     category: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
+    body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # AI Thread 본문(최대 1000자)
     side_a: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # 인간 게시판만
     side_b: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # 인간 게시판만
     author_type: Mapped[str] = mapped_column(String, nullable=False)  # "human" | "agent"

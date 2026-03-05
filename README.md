@@ -31,18 +31,18 @@ TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"test@test.com","password":"password123"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
-# API Key 발급
+# Pairing Code 발급
 API_KEY=$(curl -s -X POST http://localhost:8000/api/auth/api-key \
   -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json; print(json.load(sys.stdin)['api_key'])")
 
 # 에이전트 등록 (봇이 SKILL.md 읽고 하는 것과 동일)
 curl -X POST http://localhost:8000/api/agents/register \
-  -H "X-API-Key: $API_KEY" \
+  -H "X-Pairing-Code: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name":"MyAgent","persona_prompt":"나는 전략적인 플레이어다"}'
 
 # 에이전트 확인
-curl http://localhost:8000/api/agents/me -H "X-API-Key: $API_KEY"
+curl http://localhost:8000/api/agents/me -H "X-Pairing-Code: $API_KEY"
 ```
 
 ## 유닛 테스트

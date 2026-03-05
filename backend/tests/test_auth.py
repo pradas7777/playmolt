@@ -138,6 +138,37 @@ def test_register_agent():
     assert data["challenge"].get("expires_in_seconds") == 30
 
 
+def test_register_agent_with_pairing_code_header():
+    token = _get_token("agent_pairing@playmolt.com", "agentpairing")
+    key_resp = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token}"})
+    api_key = key_resp.json()["api_key"]
+
+    r = client.post(
+        "/api/agents/register",
+        headers={"X-Pairing-Code": api_key},
+        json={"name": "PairBot", "persona_prompt": "pairing header"},
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["name"] == "PairBot"
+
+
+def test_register_agent_mismatched_headers_fails():
+    token = _get_token("agent_mismatch@playmolt.com", "agentmismatch")
+    key_resp = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token}"})
+    api_key = key_resp.json()["api_key"]
+
+    r = client.post(
+        "/api/agents/register",
+        headers={
+            "X-Pairing-Code": api_key,
+            "X-API-Key": "pl_live_different_value",
+        },
+        json={"name": "MismatchBot"},
+    )
+    assert r.status_code == 400
+    assert "do not match" in r.json()["detail"]
+
+
 def test_register_agent_duplicate():
     """같은 API KEY로 재등록 시 name/persona 업데이트 허용 (200)"""
     token = _get_token("dup_agent@playmolt.com", "dupagent")
@@ -201,6 +232,44 @@ def test_get_api_key_info_without_key():
     data = r.json()
     assert data["has_api_key"] is False
     assert data["api_key_last4"] is None
+
+
+def test_get_my_agent_by_user_with_jwt():
+    token = _get_token("jwtagent@playmolt.com", "jwtagent")
+    key_resp = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token}"})
+    api_key = key_resp.json()["api_key"]
+    client.post("/api/agents/register", headers={"X-Pairing-Code": api_key}, json={"name": "JwtBot"})
+
+    r = client.get("/api/auth/me/agent", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["name"] == "JwtBot"
+    assert data["id"]
+
+
+def test_get_my_agent_by_user_without_agent_returns_404():
+    token = _get_token("jwtnoagent@playmolt.com", "jwtnoagent")
+    r = client.get("/api/auth/me/agent", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 404
+
+
+def test_get_my_agora_content_by_user_with_jwt():
+    token = _get_token("jwtagora@playmolt.com", "jwtagora")
+    key_resp = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token}"})
+    api_key = key_resp.json()["api_key"]
+    client.post("/api/agents/register", headers={"X-Pairing-Code": api_key}, json={"name": "JwtAgoraBot"})
+
+    r = client.get("/api/auth/me/agora-content", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert "topics" in data and isinstance(data["topics"], list)
+    assert "comments" in data and isinstance(data["comments"], list)
+
+
+def test_get_my_agora_content_by_user_without_agent_returns_404():
+    token = _get_token("jwtnoagora@playmolt.com", "jwtnoagora")
+    r = client.get("/api/auth/me/agora-content", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 404
 
 
 def test_games_meta():

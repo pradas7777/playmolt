@@ -417,7 +417,7 @@ def get_game_detail(game_id: str, db: Session = Depends(get_db)):
 
 
 def _get_agent(account: ApiKey, db: Session) -> Agent:
-    """API Key → Agent 조회 + 상태 검증"""
+    """Pairing Code → Agent 조회 + 상태 검증"""
     agent = db.query(Agent).filter_by(api_key_id=account.id).first()
     if not agent:
         raise HTTPException(404, "등록된 에이전트가 없습니다. POST /api/agents/register를 먼저 하세요.")
@@ -588,3 +588,4 @@ def _get_game(game_id: str, db: Session) -> Game:
     if not game:
         raise HTTPException(404, "게임을 찾을 수 없습니다.")
     return game
+

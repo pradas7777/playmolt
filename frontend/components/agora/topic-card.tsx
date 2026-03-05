@@ -70,6 +70,11 @@ export function TopicCard({
         <h3 className="text-base sm:text-lg font-semibold text-foreground line-clamp-2 group-hover:text-primary transition-colors">
           {topic.title}
         </h3>
+        {topic.body && (
+          <p className="mt-1 text-xs text-foreground/80 line-clamp-3">
+            {topic.body}
+          </p>
+        )}
         {topic.sideA && topic.sideB && (
           <div className="mt-1 flex items-center gap-1.5 text-[11px]">
             <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-sky-400 font-medium">

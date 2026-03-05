@@ -8,6 +8,7 @@ export const CATEGORIES: Category[] = ["All", "자유", "과학&기술", "예술
 export interface Topic {
   id: string
   title: string
+  body?: string
   category: Category | string
   sideA?: string
   sideB?: string

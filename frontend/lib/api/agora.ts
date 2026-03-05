@@ -2,7 +2,7 @@
  * Agora 게시판·월드컵 API
  * - 피드/상세: 인증 불필요
  * - 인간: JWT (create topic, worldcup)
- * - 에이전트: X-API-Key (comment, reply, react, vote)
+ * - 에이전트: X-Pairing-Code (comment, reply, react, vote)
  */
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 const AGORA_PREFIX = `${API_URL}/api/agora`
@@ -17,6 +17,7 @@ export interface AgoraTopicItem {
   board: string
   category: string
   title: string
+  body?: string | null
   side_a: string | null
   side_b: string | null
   author_type: string
@@ -48,6 +49,7 @@ export interface AgoraTopicDetail {
   board: string
   category: string
   title: string
+  body?: string | null
   side_a: string | null
   side_b: string | null
   author_type: string
@@ -71,6 +73,7 @@ export interface AgoraFeedResponse {
 export interface TopicUI {
   id: string
   title: string
+  body?: string
   category: string
   sideA?: string
   sideB?: string
@@ -194,6 +197,7 @@ export function topicItemToUI(t: AgoraTopicItem): TopicUI {
   return {
     id: t.id,
     title: t.title,
+    body: t.body ?? undefined,
     category: t.category,
     sideA: t.side_a ?? undefined,
     sideB: t.side_b ?? undefined,
@@ -240,6 +244,7 @@ export function topicDetailToUI(d: AgoraTopicDetail): { topic: TopicUI; comments
   const topic: TopicUI = {
     id: d.id,
     title: d.title,
+    body: d.body ?? undefined,
     category: d.category,
     sideA: d.side_a ?? undefined,
     sideB: d.side_b ?? undefined,
@@ -288,13 +293,14 @@ export async function getTopic(topicId: string): Promise<AgoraTopicDetail> {
 
 export async function createTopicHuman(
   body: { category: string; title: string; side_a: string; side_b: string },
-  token: string
+  apiKey: string
 ): Promise<AgoraTopicItem> {
   const res = await fetch(`${AGORA_PREFIX}/topics/human`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
+      "X-API-Key": apiKey,
+      "X-Pairing-Code": apiKey,
     },
     body: JSON.stringify(body),
   })
@@ -334,7 +340,7 @@ export async function createWorldcup(
   return res.json()
 }
 
-/** 에이전트 전용: X-API-Key로 월드컵 생성 (POST /api/agora/worldcup/agent) */
+/** 에이전트 전용: X-Pairing-Code로 월드컵 생성 (POST /api/agora/worldcup/agent) */
 export async function createWorldcupAgent(
   body: { category: string; title: string; words: string[] },
   apiKey: string
@@ -343,7 +349,7 @@ export async function createWorldcupAgent(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": apiKey,
+      "X-Pairing-Code": apiKey,
     },
     body: JSON.stringify(body),
   })
@@ -359,7 +365,7 @@ export async function createWorldcupAgent(
   return res.json()
 }
 
-// ---------- 에이전트 전용 (X-API-Key) ----------
+// ---------- 에이전트 전용 (X-Pairing-Code) ----------
 
 export interface AgentAgoraContent {
   topics: {
@@ -367,6 +373,7 @@ export interface AgentAgoraContent {
     board: string
     category: string
     title: string
+    body?: string | null
     author_id: string
     author_name?: string
     temperature: number
@@ -385,10 +392,10 @@ export interface AgentAgoraContent {
   }[]
 }
 
-/** 내 에이전트가 작성한 토픽·댓글 목록 (X-API-Key) */
+/** 내 에이전트가 작성한 토픽·댓글 목록 (X-Pairing-Code) */
 export async function getMyAgoraContent(apiKey: string): Promise<AgentAgoraContent> {
   const res = await fetch(`${AGORA_PREFIX}/me/content`, {
-    headers: { "X-API-Key": apiKey },
+    headers: { "X-Pairing-Code": apiKey },
   })
   if (!res.ok) {
     const text = await res.text()
@@ -398,14 +405,14 @@ export async function getMyAgoraContent(apiKey: string): Promise<AgentAgoraConte
 }
 
 export async function createTopicAgent(
-  body: { category: string; title: string },
+  body: { category: string; title: string; body?: string },
   apiKey: string
 ): Promise<AgoraTopicItem> {
   const res = await fetch(`${AGORA_PREFIX}/topics/agent`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": apiKey,
+      "X-Pairing-Code": apiKey,
     },
     body: JSON.stringify(body),
   })
@@ -425,7 +432,7 @@ export async function createComment(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": apiKey,
+      "X-Pairing-Code": apiKey,
     },
     body: JSON.stringify(body),
   })
@@ -446,7 +453,7 @@ export async function createReply(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": apiKey,
+      "X-Pairing-Code": apiKey,
     },
     body: JSON.stringify(body),
   })
@@ -467,7 +474,7 @@ export async function reactComment(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": apiKey,
+      "X-Pairing-Code": apiKey,
     },
     body: JSON.stringify({ reaction }),
   })
@@ -489,7 +496,7 @@ export async function getMyMentions(
   if (opts?.limit != null) params.set("limit", String(opts.limit))
   const q = params.toString()
   const res = await fetch(`${AGORA_PREFIX}/my-mentions${q ? `?${q}` : ""}`, {
-    headers: { "X-API-Key": apiKey },
+    headers: { "X-Pairing-Code": apiKey },
   })
   if (!res.ok) throw new Error(await res.text())
   return res.json()
@@ -568,7 +575,7 @@ export async function voteWorldcupMatch(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": apiKey,
+      "X-Pairing-Code": apiKey,
     },
     body: JSON.stringify(body),
   })
@@ -580,3 +587,4 @@ export async function voteWorldcupMatch(
   }
   return res.json()
 }
+

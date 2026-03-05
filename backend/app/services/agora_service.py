@@ -34,6 +34,7 @@ def create_topic(
     title: str,
     author_type: str,
     author_id: str,
+    body: Optional[str] = None,
     side_a: Optional[str] = None,
     side_b: Optional[str] = None,
 ) -> AgoraTopic:
@@ -41,6 +42,14 @@ def create_topic(
         raise ValueError("human 게시판은 side_a, side_b 필수")
     if board == "agent":
         side_a = side_b = None
+        if body is not None:
+            body = body.strip()
+            if len(body) > 1000:
+                raise ValueError("BODY_TOO_LONG")
+            if not body:
+                body = None
+    else:
+        body = None
     # 에이전트 게시판: 동일 에이전트가 최근 동일 제목/카테고리로 올린 토픽이 있으면 중복 거부
     if board == "agent":
         since = datetime.now(timezone.utc) - timedelta(seconds=DUPLICATE_WINDOW_SEC)
@@ -63,6 +72,7 @@ def create_topic(
         board=board,
         category=category,
         title=title,
+        body=body,
         side_a=side_a,
         side_b=side_b,
         author_type=author_type,
@@ -308,6 +318,7 @@ def get_topic_detail(db: Session, topic_id: str) -> dict:
         "board": topic.board,
         "category": topic.category,
         "title": topic.title,
+        "body": topic.body,
         "side_a": topic.side_a,
         "side_b": topic.side_b,
         "author_type": topic.author_type,
@@ -355,6 +366,7 @@ def get_agent_agora_content(db: Session, agent_id: str) -> dict:
             "board": t.board,
             "category": t.category,
             "title": t.title,
+            "body": t.body,
             "side_a": t.side_a,
             "side_b": t.side_b,
             "author_type": t.author_type,
@@ -456,6 +468,7 @@ def create_worldcup(
         board="worldcup",
         category=category,
         title=title,
+        body=None,
         side_a=None,
         side_b=None,
         author_type=author_type,

@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
@@ -8,7 +8,6 @@ import Image from "next/image"
 import { GameBackToWorldmap } from "@/components/game/game-back-to-worldmap"
 import { AgentCard, type AgentCardHandle } from "@/components/agent-card/agent-card"
 import { GasWarningBar } from "@/components/battle/gas-warning-bar"
-import { GameInfoPanel } from "@/components/battle/game-info-panel"
 import { RoundLogPanel, type RoundEvent } from "@/components/battle/round-log-panel"
 import { GameOverOverlay } from "@/components/battle/game-over-overlay"
 import { RoundTransitionOverlay } from "@/components/battle/round-transition-overlay"
@@ -34,10 +33,13 @@ import { WaitingAgentsPanel } from "@/components/game/waiting-agents-panel"
 
 const CARD_FRAME = "/images/cards/battle_game_card.png"
 const GAS_START = 8
-/** backend battle.COLLECT_TIMEOUT_SEC와 동일. collect 단계(에이전트 생각중) 타임아웃 */
-const COLLECT_TIMEOUT_SEC = 45
+const BATTLE_UI_POSITIONS = {
+  lastAction: { x: 25, y: 24 },
+  hp: { x: 15, y: 67 },
+  energy: { x: 15, y: 88 },
+} as const
 
-/** 고정된 표시 순서로 에이전트 정렬 (위치 변경 없이 isActive만 바뀌도록) */
+/** 怨좎젙???쒖떆 ?쒖꽌濡??먯씠?꾪듃 ?뺣젹 (?꾩튂 蹂寃??놁씠 isActive留?諛붾뚮룄濡? */
 function sortAgentsByStableOrder(
   agents: MappedAgentState[],
   order: string[]
@@ -74,7 +76,6 @@ export default function BattleArenaSpectatorPage() {
 
   const [round, setRound] = useState(0)
   const [maxRound] = useState(15)
-  const [phase, setPhase] = useState("WAITING")
   const [agents, setAgents] = useState<MappedAgentState[]>([])
   const [gasActive, setGasActive] = useState(false)
   const [gameOver, setGameOver] = useState(false)
@@ -88,13 +89,9 @@ export default function BattleArenaSpectatorPage() {
   const [isReplayMode, setReplayMode] = useState(false)
   const [replayTotalEvents, setReplayTotalEvents] = useState(0)
   const [replayPlayedCount, setReplayPlayedCount] = useState(0)
-  /** collect 단계 진입 시각(Unix sec). 턴 남은 시간 계산용 */
-  const [collectEnteredAt, setCollectEnteredAt] = useState<number | null>(null)
-  const [turnRemainingSec, setTurnRemainingSec] = useState<number | null>(null)
-  const [actionOrder, setActionOrder] = useState<string[]>([])
-  /** 라운드 전환 시 전체 화면에 표시할 라운드 번호 (3초 후 자동 해제) */
+  /** Round transition overlay state. */
   const [roundTransitionRound, setRoundTransitionRound] = useState<number | null>(null)
-  /** 매칭 시각(Unix 초). 10초 카운트다운 패널용 */
+  /** 留ㅼ묶 ?쒓컖(Unix 珥?. 10珥?移댁슫?몃떎???⑤꼸??*/
   const [matchedAt, setMatchedAt] = useState<number | null>(null)
   const [waitingAgents, setWaitingAgents] = useState<{ id: string; name: string }[]>([])
   const [gameStatus, setGameStatus] = useState<string>("waiting")
@@ -110,23 +107,20 @@ export default function BattleArenaSpectatorPage() {
   const replayEventsRef = useRef<import("@/lib/game/eventQueue").GameEvent[]>([])
   const replayInitialStateRef = useRef<{ agents: MappedAgentState[]; round: number } | null>(null)
   const isReplayModeRef = useRef(false)
-  /** 에이전트 카드 위치 고정용. 첫 수신 시 id 순서를 고정하고 이후에는 isActive만 변경 */
+  /** ?먯씠?꾪듃 移대뱶 ?꾩튂 怨좎젙?? 泥??섏떊 ??id ?쒖꽌瑜?怨좎젙?섍퀬 ?댄썑?먮뒗 isActive留?蹂寃?*/
   const stableDisplayOrderRef = useRef<string[]>([])
   agentsRef.current = agents
   roundRef.current = round
   isReplayModeRef.current = isReplayMode
-
-  const activeAgent = agents.find((a) => a.isActive) ?? agents[0]
-
-  /** 라운드 전환: 전체 화면 이펙트 표시 후 3초 대기, 다음 라운드용 가운데 로그 초기화 */
+  /** ?쇱슫???꾪솚: ?꾩껜 ?붾㈃ ?댄럺???쒖떆 ??3珥??湲? ?ㅼ쓬 ?쇱슫?쒖슜 媛?대뜲 濡쒓렇 珥덇린??*/
   const onRoundTransition = useCallback(async (round: number) => {
     setRoundTransitionRound(round)
-    await new Promise((r) => setTimeout(r, 3000))
+    await new Promise((r) => setTimeout(r, 2000))
     setRoundTransitionRound(null)
     setRoundEvents([])
   }, [])
 
-  /** 에이전트 상태만 갱신하고 카드 순서는 고정 (isActive 하이라이트만 변경) */
+  /** ?먯씠?꾪듃 ?곹깭留?媛깆떊?섍퀬 移대뱶 ?쒖꽌??怨좎젙 (isActive ?섏씠?쇱씠?몃쭔 蹂寃? */
   const setAgentsSorted = useCallback((updater: (prev: MappedAgentState[]) => MappedAgentState[]) => {
     setAgents((prev) => {
       const next = updater(prev)
@@ -158,7 +152,6 @@ export default function BattleArenaSpectatorPage() {
       )
       setAgentsSorted(() => initialAgents)
       setRound(initialRound)
-      setPhase("COLLECT")
       setGasActive(initialRound >= 8)
       setFlipped(initialAgents.map(() => false))
       setRoundEvents([])
@@ -178,7 +171,7 @@ export default function BattleArenaSpectatorPage() {
       eventQueueRef.current?.enqueueAll(events)
       setQueueTick((t) => t + 1)
     } catch (e) {
-      console.error("[Replay] 로그 로드 실패", e)
+      console.error("[Replay] 濡쒓렇 濡쒕뱶 ?ㅽ뙣", e)
       setGameOver(true)
     }
   }, [gameId])
@@ -189,7 +182,6 @@ export default function BattleArenaSpectatorPage() {
     if (!init || !evs.length) return
     setAgentsSorted(() => init.agents)
     setRound(init.round)
-    setPhase("COLLECT")
     setGasActive(init.round >= 8)
     setFlipped(init.agents.map(() => false))
     setRoundEvents([])
@@ -203,7 +195,7 @@ export default function BattleArenaSpectatorPage() {
     setQueueTick((t) => t + 1)
   }, [])
 
-  // 이벤트 큐 생성 (한 번만)
+  // ?대깽?????앹꽦 (??踰덈쭔)
   useEffect(() => {
     const q = new EventQueue({
       onEvent: async (ev) => {
@@ -221,9 +213,6 @@ export default function BattleArenaSpectatorPage() {
           setWinnerPoints,
           getAgentNames: () => agentNamesRef.current,
           getRound: () => roundRef.current,
-          setActionOrder,
-          setPhase,
-          setCollectEnteredAt,
           onRoundTransition,
         })
       },
@@ -262,8 +251,6 @@ export default function BattleArenaSpectatorPage() {
           setGameOver(true)
           const ui = mapBattleStateToUI(data.battle_state)
           setRound(ui.round)
-          setPhase(ui.phase)
-          setActionOrder(ui.actionOrder)
           setAgentsSorted(() => ui.agents)
           setGasActive(ui.gasActive)
           agentNamesRef.current = Object.fromEntries(ui.agents.map((a) => [a.id, a.name]))
@@ -277,21 +264,14 @@ export default function BattleArenaSpectatorPage() {
           setWinnerName(winnerResult.winnerName)
           setWinnerPoints(winnerResult.winnerPoints)
         } else {
-          const bs = data.battle_state as { round_log?: unknown[]; collect_entered_at?: number; matched_at?: number }
+          const bs = data.battle_state as { round_log?: unknown[]; matched_at?: number }
           if (data.matched_at != null || bs?.matched_at != null) setMatchedAt(data.matched_at ?? bs?.matched_at ?? null)
           const ui = mapBattleStateToUI(bs)
           setRound(ui.round)
-          setPhase(ui.phase)
-          setActionOrder(ui.actionOrder)
           setAgentsSorted(() => ui.agents)
           setGasActive(ui.gasActive)
           setFlipped(ui.agents.map(() => false))
           agentNamesRef.current = Object.fromEntries(ui.agents.map((a) => [a.id, a.name]))
-          if (ui.phase === "COLLECT" && bs.collect_entered_at != null) {
-            setCollectEnteredAt(bs.collect_entered_at)
-          } else {
-            setCollectEnteredAt(null)
-          }
           const roundLog = bs?.round_log
           if (roundLog?.length) {
             const roundForLog = Math.max(1, ui.round - 1)
@@ -299,7 +279,7 @@ export default function BattleArenaSpectatorPage() {
             setAgentsSorted((prev) => applyLastActionFromLog(prev, roundLog))
           }
           setTerminalLogs([
-            toBattleLogEntry(ui.round, `Game loaded — Round ${ui.round}`, "ROUND_END"),
+            toBattleLogEntry(ui.round, `Game loaded - Round ${ui.round}`, "ROUND_END"),
           ])
         }
       })
@@ -337,7 +317,7 @@ export default function BattleArenaSpectatorPage() {
       setReconnecting(false)
 
       if (event.type === "initial" && event.battle_state) {
-        const bs = event.battle_state as Parameters<typeof mapBattleStateToUI>[0] & { collect_entered_at?: number; round_log?: unknown[] }
+        const bs = event.battle_state as Parameters<typeof mapBattleStateToUI>[0] & { round_log?: unknown[] }
         const ui = mapBattleStateToUI(bs)
         const withNames = ui.agents.map((a) => ({
           ...a,
@@ -347,16 +327,9 @@ export default function BattleArenaSpectatorPage() {
           if (a.name !== a.id) agentNamesRef.current[a.id] = a.name
         })
         setRound(ui.round)
-        setPhase(ui.phase)
-        setActionOrder(ui.actionOrder)
         setAgentsSorted(() => withNames)
         setGasActive(ui.gasActive)
         setFlipped(withNames.map(() => false))
-        if (ui.phase === "COLLECT" && bs.collect_entered_at != null) {
-          setCollectEnteredAt(bs.collect_entered_at)
-        } else {
-          setCollectEnteredAt(null)
-        }
         if (bs.round_log?.length) {
           const roundForLog = Math.max(1, ui.round - 1)
           setRoundEvents(mapRoundLogToRoundEvents(bs.round_log, ui.agents, roundForLog))
@@ -370,15 +343,15 @@ export default function BattleArenaSpectatorPage() {
         ui.agents.forEach((a) => {
           if (a.name !== a.id) agentNamesRef.current[a.id] = a.name
         })
-        // 라운드/페이즈/타이머는 state_snapshot에서만 반영 (큐 재생 후 일치시키기)
+        // ?쇱슫???섏씠利???대㉧??state_snapshot?먯꽌留?諛섏쁺 (???ъ깮 ???쇱튂?쒗궎湲?
         const events = battleStateToEvents(bs)
         eventQueueRef.current?.enqueueAll(events)
         setQueueTick((t) => t + 1)
       }
 
-      // round_end는 state_update의 battleStateToEvents에서 이미 큐에 포함되어 순서가 보장됨 (별도 enqueue 안 함)
+      // round_end??state_update??battleStateToEvents?먯꽌 ?대? ?먯뿉 ?ы븿?섏뼱 ?쒖꽌媛 蹂댁옣??(蹂꾨룄 enqueue ????
       if (event.type === "round_end") {
-        // no-op: collect/round는 state_snapshot 처리 시 반영됨
+        // no-op: collect/round??state_snapshot 泥섎━ ??諛섏쁺??
       }
 
       if (event.type === "game_end") {
@@ -387,7 +360,7 @@ export default function BattleArenaSpectatorPage() {
           gameEndToEvent(event.winner_id ?? null, event.results)
         )
         setQueueTick((t) => t + 1)
-        // 백엔드는 이미 종료돼도 프론트는 큐 순차 재생이 끝날 때까지 유지. 게임 종료는 큐에서 game_end 처리 시 반영.
+        // 諛깆뿏?쒕뒗 ?대? 醫낅즺?쇰룄 ?꾨줎?몃뒗 ???쒖감 ?ъ깮???앸궇 ?뚭퉴吏 ?좎?. 寃뚯엫 醫낅즺???먯뿉??game_end 泥섎━ ??諛섏쁺.
       }
     })
 
@@ -402,7 +375,7 @@ export default function BattleArenaSpectatorPage() {
     if (notFound) router.replace("/battle")
   }, [notFound, router])
 
-  // 큐에서 game_end 처리 시에만 게임 종료·WS 연결 해제 (순차 재생 끝까지 유지)
+  // ?먯뿉??game_end 泥섎━ ?쒖뿉留?寃뚯엫 醫낅즺쨌WS ?곌껐 ?댁젣 (?쒖감 ?ъ깮 ?앷퉴吏 ?좎?)
   useEffect(() => {
     if (!gameOver) return
     wsRef.current?.disconnect()
@@ -410,22 +383,7 @@ export default function BattleArenaSpectatorPage() {
     setGameFinished(true)
   }, [gameOver])
 
-  // 턴 남은 시간 카운트다운 (collect 단계 = 에이전트 생각중, 1초 간격). 매 라운드 collect_entered_at으로 초기화
-  useEffect(() => {
-    if (phase !== "COLLECT" || collectEnteredAt == null) {
-      setTurnRemainingSec(null)
-      return
-    }
-    const tick = () => {
-      const remaining = Math.max(0, Math.ceil(collectEnteredAt + COLLECT_TIMEOUT_SEC - Date.now() / 1000))
-      setTurnRemainingSec(remaining)
-    }
-    tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
-  }, [phase, collectEnteredAt])
-
-  // URL에 ?replay=1 이고 게임이 이미 종료된 경우 리플레이 자동 시작
+  // URL???replay=1 ?닿퀬 寃뚯엫???대? 醫낅즺??寃쎌슦 由ы뵆?덉씠 ?먮룞 ?쒖옉
   useEffect(() => {
     if (
       !loading &&
@@ -525,27 +483,11 @@ export default function BattleArenaSpectatorPage() {
 
         <div className="relative z-10 flex flex-col h-full">
           <GasWarningBar active={gasActive} />
-          <div className="pt-3 pb-2">
-            <GameInfoPanel
-              round={round}
-              maxRound={maxRound}
-              phase={phase}
-              activeAgentName={activeAgent?.name ?? ""}
-              turnRemainingSec={turnRemainingSec}
-              turnOrderDisplay={actionOrder
-                .filter((id) => agents.find((a) => a.id === id) && !agents.find((a) => a.id === id)?.isDead)
-                .map((id, i) => ({
-                  position: i + 1,
-                  name: agents.find((a) => a.id === id)?.name ?? id,
-                  isCurrent: i === 0,
-                }))}
-            />
-          </div>
 
-          <div className="flex-1 flex items-center justify-center relative px-4">
+          <div className="flex-1 flex items-center justify-center relative px-4 pt-3">
             <div className="relative">
-              {/* 시계방향: 선공(0) → 우(1) → 우하(2) → 좌하(3). 2행은 좌우 교체 so [0,1,3,2] */}
-              <div className="grid grid-cols-2 gap-40">
+              {/* ?쒓퀎諛⑺뼢: ?좉났(0) ????1) ???고븯(2) ??醫뚰븯(3). 2?됱? 醫뚯슦 援먯껜 so [0,1,3,2] */}
+              <div className="grid grid-cols-2 gap-60">
                 {([0, 1, 3, 2] as const).map((agentIndex, slotIndex) => {
                   const agent = agents[agentIndex]
                   if (!agent) return null
@@ -566,6 +508,7 @@ export default function BattleArenaSpectatorPage() {
                         onFlip={() => handleFlip(slotIndex)}
                         hp={agent.hp}
                         energy={agent.energy}
+                        battleUiPositions={BATTLE_UI_POSITIONS}
                         lastAction={agent.lastAction}
                         persona="AI agent"
                         totalPoints={0}
@@ -586,7 +529,7 @@ export default function BattleArenaSpectatorPage() {
                           }}
                         >
                           <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-3xl opacity-60">
-                            🛡️
+                            ?썳截?
                           </span>
                         </motion.div>
                       )}
@@ -595,7 +538,7 @@ export default function BattleArenaSpectatorPage() {
                   )
                 })}
               </div>
-              <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none ${isReplayMode ? "top-[35%] -translate-y-1/2" : ""}`}>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none">
                 <RoundLogPanel events={roundEvents} currentRound={round} />
               </div>
             </div>
@@ -607,9 +550,6 @@ export default function BattleArenaSpectatorPage() {
           <ReplayMode
             queueRef={eventQueueRef}
             queueTick={queueTick}
-            currentEventIndex={replayPlayedCount}
-            totalEvents={replayTotalEvents}
-            onRestart={handleReplayRestart}
           />
         )}
 
@@ -634,3 +574,4 @@ export default function BattleArenaSpectatorPage() {
     </div>
   )
 }
+

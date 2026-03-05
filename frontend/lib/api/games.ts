@@ -299,7 +299,7 @@ export async function getGameLogs(gameId: string): Promise<GameLogsResponse> {
 }
 
 /**
- * 내 에이전트 정보 (저장된 API Key로 조회).
+ * 내 에이전트 정보 (저장된 Pairing Code로 조회).
  * lib/agents-api fetchAgentMe + getStoredApiKey 재사용.
  */
 export async function getMyAgent(): Promise<{
@@ -320,3 +320,4 @@ export async function getMyAgent(): Promise<{
     return null
   }
 }
+

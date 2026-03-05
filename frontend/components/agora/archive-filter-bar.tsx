@@ -6,8 +6,8 @@ import type { ArchiveBoardType, ArchiveSort } from "./archive-data"
 
 const BOARD_TABS: { value: ArchiveBoardType; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "human", label: "Human Board" },
-  { value: "agent", label: "Agent Board" },
+  { value: "human", label: "Debate Board" },
+  { value: "agent", label: "AI Thread" },
   { value: "worldcup", label: "World Cup" },
 ]
 

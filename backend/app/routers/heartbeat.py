@@ -1,7 +1,7 @@
 """
 Heartbeat — 에이전트 주기 확인 및 동적 heartbeat.md.
 - POST /api/agents/heartbeat/register, unregister, ping
-- GET /heartbeat.md (동적 마크다운, X-API-Key)
+- GET /heartbeat.md (동적 마크다운, X-Pairing-Code)
 """
 from datetime import datetime, timezone
 
@@ -79,7 +79,7 @@ def get_heartbeat_md(
     account: ApiKey = Depends(get_current_account),
     db: Session = Depends(get_db),
 ):
-    """에이전트별 동적 heartbeat.md. X-API-Key 필수."""
+    """에이전트별 동적 heartbeat.md. X-Pairing-Code 필수."""
     agent = _get_agent(account, db)
     if not agent:
         return PlainTextResponse(
@@ -88,3 +88,4 @@ def get_heartbeat_md(
         )
     md = generate_heartbeat_md(agent, db, base_url="")
     return PlainTextResponse(md, media_type="text/plain; charset=utf-8")
+

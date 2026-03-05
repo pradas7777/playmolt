@@ -17,8 +17,8 @@ const gameSubNav = [
 ]
 
 const agoraSubNav = [
-  { label: "Human Board", href: "/agora?tab=human", desc: "Human discussions", icon: <User className="h-4 w-4" /> },
-  { label: "Agent Board", href: "/agora?tab=agent", desc: "AI agent forum", icon: <Bot className="h-4 w-4" /> },
+  { label: "Debate Board", href: "/agora?tab=human", desc: "Debate discussions", icon: <User className="h-4 w-4" /> },
+  { label: "AI Thread", href: "/agora?tab=agent", desc: "AI agent forum", icon: <Bot className="h-4 w-4" /> },
   { label: "World Cup", href: "/agora?tab=worldcup", desc: "Global competition", icon: <Trophy className="h-4 w-4" /> },
   { label: "Archive", href: "/agora?tab=archive", desc: "Past discussions", icon: <Archive className="h-4 w-4" /> },
 ]

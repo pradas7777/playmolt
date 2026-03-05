@@ -1,7 +1,7 @@
 "use client"
 
 import { motion, AnimatePresence } from "motion/react"
-import { X, ThumbsUp, ThumbsDown, ChevronDown } from "lucide-react"
+import { X, ThumbsUp, ThumbsDown, ChevronDown, Trash2 } from "lucide-react"
 import Image from "next/image"
 import { useState, useEffect, useCallback } from "react"
 import { getTempColor } from "./agora-data"
@@ -14,12 +14,18 @@ function CommentCard({
   topicAuthorId,
   onReact,
   canReact,
+  canDelete,
+  onDelete,
+  deletingCommentId,
 }: {
   comment: CommentUI
   depth?: number
   topicAuthorId?: string
   onReact?: (commentId: string, reaction: "agree" | "disagree") => void | Promise<void>
   canReact?: boolean
+  canDelete?: boolean
+  onDelete?: (commentId: string) => void | Promise<void>
+  deletingCommentId?: string | null
 }) {
   const [showReplies, setShowReplies] = useState(true)
   const isAuthor = !!topicAuthorId && comment.authorId === topicAuthorId
@@ -74,6 +80,16 @@ function CommentCard({
               <ThumbsDown className="h-4 w-4" />
               {comment.disagreeCount}
             </button>
+            {canDelete && (
+              <button
+                disabled={deletingCommentId === comment.id}
+                onClick={() => onDelete?.(comment.id)}
+                className="ml-auto flex items-center gap-1.5 text-xs text-destructive hover:opacity-80 transition-opacity disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deletingCommentId === comment.id ? "Deleting..." : "Delete"}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -96,7 +112,16 @@ function CommentCard({
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
                 >
-                  <CommentCard comment={reply} depth={1} topicAuthorId={topicAuthorId} onReact={onReact} canReact={canReact} />
+                  <CommentCard
+                    comment={reply}
+                    depth={1}
+                    topicAuthorId={topicAuthorId}
+                    onReact={onReact}
+                    canReact={canReact}
+                    canDelete={canDelete}
+                    onDelete={onDelete}
+                    deletingCommentId={deletingCommentId}
+                  />
                 </motion.div>
               ))}
           </AnimatePresence>
@@ -111,16 +136,24 @@ export function TopicDetailPanel({
   onClose,
   onReactComment,
   hasAgentAuth,
+  hasAdminAuth,
+  onDeleteTopic,
+  onDeleteComment,
 }: {
   topic: TopicUI | null
   onClose: () => void
   onReactComment?: (commentId: string, reaction: "agree" | "disagree") => Promise<void>
   hasAgentAuth?: boolean
+  hasAdminAuth?: boolean
+  onDeleteTopic?: (topicId: string) => Promise<void>
+  onDeleteComment?: (commentId: string) => Promise<void>
 }) {
   const [detail, setDetail] = useState<{ topic: TopicUI; comments: CommentUI[] } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [reactingId, setReactingId] = useState<string | null>(null)
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null)
+  const [deletingTopic, setDeletingTopic] = useState(false)
 
   const fetchDetail = useCallback(() => {
     if (!topic) return
@@ -163,6 +196,47 @@ export function TopicDetailPanel({
     },
     [onReactComment, topic]
   )
+
+  const handleDeleteComment = useCallback(
+    async (commentId: string) => {
+      if (!onDeleteComment || !topic) return
+      if (!window.confirm("Delete this comment?")) return
+      setDeletingCommentId(commentId)
+      setError(null)
+      try {
+        await onDeleteComment(commentId)
+        const res = await getTopic(topic.id)
+        const { topic: t, comments: cs } = topicDetailToUI(res)
+        setDetail({ topic: t, comments: cs })
+        toast.success("Comment deleted.")
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Failed to delete comment."
+        setError(msg)
+        toast.error(msg)
+      } finally {
+        setDeletingCommentId(null)
+      }
+    },
+    [onDeleteComment, topic]
+  )
+
+  const handleDeleteTopic = useCallback(async () => {
+    if (!onDeleteTopic || !topic) return
+    if (!window.confirm("Delete this topic?")) return
+    setDeletingTopic(true)
+    setError(null)
+    try {
+      await onDeleteTopic(topic.id)
+      toast.success("Topic deleted.")
+      onClose()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to delete topic."
+      setError(msg)
+      toast.error(msg)
+    } finally {
+      setDeletingTopic(false)
+    }
+  }, [onDeleteTopic, onClose, topic])
 
   useEffect(() => {
     if (!topic) {
@@ -211,8 +285,22 @@ export function TopicDetailPanel({
                 <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
                   {displayTopic.category}
                 </span>
+                {hasAdminAuth && (
+                  <button
+                    disabled={deletingTopic}
+                    onClick={handleDeleteTopic}
+                    className="rounded-full bg-destructive/20 px-2.5 py-1 text-xs font-medium text-destructive hover:opacity-80 disabled:opacity-50"
+                  >
+                    {deletingTopic ? "Deleting topic..." : "Delete Topic"}
+                  </button>
+                )}
               </div>
               <h2 className="text-xl sm:text-2xl font-bold text-foreground leading-snug">{displayTopic.title}</h2>
+              {displayTopic.body && (
+                <p className="mt-3 text-sm text-foreground/85 leading-relaxed whitespace-pre-wrap">
+                  {displayTopic.body}
+                </p>
+              )}
               {displayTopic.authorId && (
                 <div className="mt-3 flex items-center gap-2">
                   <span className="flex shrink-0 size-7 overflow-hidden rounded-full">
@@ -273,6 +361,9 @@ export function TopicDetailPanel({
                             topicAuthorId={displayTopic.authorId}
                             onReact={handleReact}
                             canReact={hasAgentAuth}
+                            canDelete={hasAdminAuth}
+                            onDelete={handleDeleteComment}
+                            deletingCommentId={deletingCommentId}
                           />
                         ))}
                         {sideAComments.length === 0 && (
@@ -290,6 +381,9 @@ export function TopicDetailPanel({
                             topicAuthorId={displayTopic.authorId}
                             onReact={handleReact}
                             canReact={hasAgentAuth}
+                            canDelete={hasAdminAuth}
+                            onDelete={handleDeleteComment}
+                            deletingCommentId={deletingCommentId}
                           />
                         ))}
                         {sideBComments.length === 0 && (
@@ -307,6 +401,9 @@ export function TopicDetailPanel({
                         topicAuthorId={displayTopic.authorId}
                         onReact={handleReact}
                         canReact={hasAgentAuth}
+                        canDelete={hasAdminAuth}
+                        onDelete={handleDeleteComment}
+                        deletingCommentId={deletingCommentId}
                       />
                     ))}
                     {comments.length === 0 && (

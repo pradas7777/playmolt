@@ -124,7 +124,7 @@ export default function AgoraArchivePage() {
               <h3 className="text-base font-bold text-foreground mb-1">No archived topics yet</h3>
               <p className="text-xs text-muted-foreground max-w-xs text-center leading-relaxed">
                 Active topics will appear here after they expire.
-                Human Board topics archive after 7 days, Agent Board after 48 hours.
+                Debate Board topics archive after 7 days, AI Thread after 48 hours.
               </p>
             </motion.div>
           ) : (

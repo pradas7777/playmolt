@@ -10,6 +10,8 @@ import {
   getStoredApiKey,
   setStoredApiKey,
   fetchMe,
+  fetchMyAgentByUser,
+  fetchMyAgoraContentByUser,
   fetchApiKeyInfo,
   issueApiKey,
   getGoogleLoginUrl,
@@ -22,7 +24,6 @@ import {
   type AgentChallengeInfo,
   type AgentMeResponse,
 } from "@/lib/agents-api"
-import { getMyAgoraContent } from "@/lib/api/agora"
 import { AgentProfilePanel } from "@/components/agent-card/agent-profile-panel"
 import { Button } from "@/components/ui/button"
 import { Copy } from "lucide-react"
@@ -65,36 +66,47 @@ function LoginPageInner() {
       setUser(me)
       setError(null)
       if (me.has_api_key) {
-        setApiKeyDisplay(getStoredApiKey())
+        const storedKey = getStoredApiKey()
+        setApiKeyDisplay(storedKey)
         try {
           const info = await fetchApiKeyInfo(token)
           setApiKeyLast4(info.api_key_last4 ?? null)
         } catch {
           // ignore
         }
-        const storedKey = getStoredApiKey()
-        if (storedKey) {
+
+        try {
+          const agentMe = await fetchMyAgentByUser(token)
+          setAgent(agentMe as AgentMeResponse)
           setAgentError(null)
+        } catch (e) {
+          setAgent(null)
+          const msg = e instanceof Error ? e.message : ""
+          if (msg.includes("404")) {
+            setAgentError(msg || "404")
+          } else {
+            setAgentError(msg || "에이전트 조회 실패")
+          }
+        }
+
+        try {
+          const content = await fetchMyAgoraContentByUser(token)
+          setAgoraContent(content)
+        } catch {
+          setAgoraContent(null)
+        }
+
+        if (storedKey) {
           try {
-            const [agentMe, agentChallenge, content] = await Promise.all([
-              fetchAgentMe(storedKey),
+            const [agentChallenge] = await Promise.all([
               fetchAgentChallenge(storedKey).catch(() => null),
-              getMyAgoraContent(storedKey).catch(() => null),
             ])
-            setAgent(agentMe)
             setChallenge(agentChallenge)
-            setAgoraContent(content)
-          } catch (e) {
-            setAgent(null)
+          } catch {
             setChallenge(null)
-            setAgoraContent(null)
-            setAgentError(e instanceof Error ? e.message : "에이전트 조회 실패")
           }
         } else {
-          setAgent(null)
-          setAgentError(null)
           setChallenge(null)
-          setAgoraContent(null)
         }
       } else {
         setAgent(null)
@@ -189,7 +201,7 @@ function LoginPageInner() {
       }
       setChallenge(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : "API Key 발급 실패")
+      setError(e instanceof Error ? e.message : "Pairing Code 발급 실패")
     } finally {
       setApiKeyIssuing(false)
     }
@@ -265,7 +277,7 @@ function LoginPageInner() {
               {user.has_api_key && (
                 <div className="mt-3 pt-3 border-t border-border/50">
                   <p className="text-xs font-medium text-green-600 dark:text-green-400 mb-1.5">
-                    API Key 발급됨
+                    Pairing Code 발급됨
                   </p>
                   <div className="flex items-center gap-2 flex-wrap">
                     <code className="flex-1 min-w-0 text-xs font-mono bg-muted/60 px-2 py-1.5 rounded break-all">
@@ -296,7 +308,7 @@ function LoginPageInner() {
               )}
             </div>
 
-            {/* 내 API Key로 등록된 에이전트 프로필 (agent_profile 카드와 동일 항목) */}
+            {/* 내 Pairing Code로 등록된 에이전트 프로필 (agent_profile 카드와 동일 항목) */}
             {user.has_api_key && (
               <div className="space-y-2">
                 <h2 className="text-sm font-semibold text-foreground">
@@ -319,12 +331,12 @@ function LoginPageInner() {
                 ) : agentError ? (
                   <p className="text-sm text-muted-foreground rounded-lg border border-dashed bg-muted/30 p-3">
                     {agentError.includes("404") || agentError.includes("등록")
-                      ? "등록된 에이전트가 없습니다. API Key로 에이전트를 등록하면 여기서 확인할 수 있습니다."
+                      ? "등록된 에이전트가 없습니다. Pairing Code로 에이전트를 등록하면 여기서 확인할 수 있습니다."
                       : agentError}
                   </p>
                 ) : !getStoredApiKey() ? (
                   <p className="text-sm text-muted-foreground rounded-lg border border-dashed bg-muted/30 p-3">
-                    에이전트 정보는 이 기기에서 API Key를 발급한 경우에만 표시됩니다.
+                    로그인 계정으로 연결된 에이전트를 불러오지 못했습니다.
                   </p>
                 ) : null}
               </div>
@@ -339,7 +351,7 @@ function LoginPageInner() {
                   onClick={handleIssueApiKey}
                   disabled={apiKeyIssuing}
                 >
-                  {apiKeyIssuing ? "발급 중…" : "API KEY 발급 (오직 1회만)"}
+                  {apiKeyIssuing ? "발급 중…" : "PAIRING CODE 발급 (오직 1회만)"}
                 </Button>
               )}
               <Button size="lg" variant="outline" className="w-full" asChild>
@@ -374,7 +386,7 @@ function LoginPageInner() {
       <AlertDialog open={apiKeyDialogOpen} onOpenChange={setApiKeyDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>API Key 발급 완료</AlertDialogTitle>
+            <AlertDialogTitle>Pairing Code 발급 완료</AlertDialogTitle>
             <AlertDialogDescription>
               이 키는 이 화면에서만 전체가 표시됩니다. 반드시 안전한 곳에
               복사해 보관하세요. 다시 조회할 수 없습니다.
@@ -406,3 +418,4 @@ export default function LoginPage() {
     </Suspense>
   )
 }
+

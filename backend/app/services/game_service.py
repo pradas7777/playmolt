@@ -249,6 +249,7 @@ def _default_config(game_type: GameType) -> dict:
             "gas_random_start": 8,
             "gas_all_start": 11,
             "phase_timeout_seconds": 30,
+            "round_advance_delay_seconds": 5,
         },
         GameType.ox: {
             "max_agents": 5,

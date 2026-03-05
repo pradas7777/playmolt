@@ -98,13 +98,12 @@ export async function handleBattleEvent(
             ...a,
             hp: newHp,
             isDead: newHp === 0,
-            lastAction: event.payload.blocked ? "방어됨" : `피격 ${newHp} HP`,
           }
         })
       )
       ctx.setAgents((prev) =>
         prev.map((a) =>
-          a.id === event.actor_id ? { ...a, energy: 0, lastAction: `${name(event.payload.target_id)} 공격` } : a
+          a.id === event.actor_id ? { ...a, energy: 0, lastAction: "ATTACK" } : a
         )
       )
       const attackSuffix = event.payload.invalidTarget ? "(이미 사망)" : event.payload.blocked ? "(방어)" : ""
@@ -138,7 +137,7 @@ export async function handleBattleEvent(
       if (idx !== -1) ctx.setDefending((prev) => new Set([...prev, idx]))
       ctx.setAgents((prev) =>
         prev.map((a) =>
-          a.id === event.actor_id ? { ...a, lastAction: "방어" } : a
+          a.id === event.actor_id ? { ...a, lastAction: "DEFEND" } : a
         )
       )
       ctx.setTerminalLogs((prev) => [...prev, toBattleLogEntry(ctx.getRound(), `${name(event.actor_id)} 방어`, "DEFEND")])
@@ -156,11 +155,19 @@ export async function handleBattleEvent(
     case "charge": {
       ctx.setAgents((prev) => prev.map((a) => ({ ...a, isActive: a.id === event.actor_id })))
       await delay(350)
-      await triggerChargeAnimation()
+      const idx = getIdx(event.actor_id)
+      const nextChargeLevel =
+        idx !== -1 ? Math.min(3, (agents[idx]?.energy ?? 0) + 1) : 1
+      if (idx !== -1 && ctx.cardRefs.current) {
+        const refs = ctx.cardRefs.current as (AgentCardHandle | null)[]
+        await triggerChargeAnimation({ current: refs[idx] ?? null }, nextChargeLevel)
+      } else {
+        await triggerChargeAnimation(undefined, nextChargeLevel)
+      }
       ctx.setAgents((prev) =>
         prev.map((a) =>
           a.id === event.actor_id
-            ? { ...a, energy: Math.min(3, a.energy + 1), lastAction: "차지" }
+            ? { ...a, energy: Math.min(3, a.energy + 1), lastAction: "CHARGE" }
             : a
         )
       )
@@ -219,6 +226,7 @@ export async function handleBattleEvent(
     case "round_end": {
       await triggerRoundTransitionAnimation(event.payload)
       ctx.setRound(() => event.payload.round + 1)
+      ctx.setAgents((prev) => prev.map((a) => ({ ...a, lastAction: "" })))
       ctx.setDefending(() => new Set())
       if (event.payload.round >= 8) ctx.setGasActive(true)
       // 라운드 종료 로그 1번만 추가 (중복 round_end 이벤트 방지)
@@ -279,3 +287,4 @@ export async function handleBattleEvent(
     }
   }
 }
+

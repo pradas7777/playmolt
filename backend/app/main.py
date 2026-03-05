@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 
 class Utf8JSONResponse(JSONResponse):
-    """한글 등을 유니코드 이스케이프로 직렬화(ensure_ascii=True). 클라이언트가 본문을 Latin-1 등으로 잘못 디코딩해도 JSON 파서가 복원함."""
+    """?쒓? ?깆쓣 ?좊땲肄붾뱶 ?댁뒪耳?댄봽濡?吏곷젹??ensure_ascii=True). ?대씪?댁뼵?멸? 蹂몃Ц??Latin-1 ?깆쑝濡??섎せ ?붿퐫?⑺빐??JSON ?뚯꽌媛 蹂듭썝??"""
     def render(self, content) -> bytes:
         return json.dumps(content, ensure_ascii=True, allow_nan=False).encode("utf-8")
 
@@ -21,7 +21,7 @@ from app.core.database import Base, engine
 from app.core.connection_manager import manager
 from sqlalchemy import text
 
-# 모든 모델을 명시적으로 import해야 SQLAlchemy 관계 매핑이 정상 동작
+# 紐⑤뱺 紐⑤뜽??紐낆떆?곸쑝濡?import?댁빞 SQLAlchemy 愿怨?留ㅽ븨???뺤긽 ?숈옉
 from app.models.user import User
 from app.models.api_key import ApiKey
 from app.models.agent import Agent
@@ -38,7 +38,7 @@ from app.models.agora import (
 
 from app.routers import auth, agents, games, ws, admin, agora, heartbeat
 
-# DB 테이블 자동 생성 (개발용). PostgreSQL 연결 시 Windows에서 UnicodeDecodeError 나면 SQLite로 자동 전환
+# DB ?뚯씠釉??먮룞 ?앹꽦 (媛쒕컻??. PostgreSQL ?곌껐 ??Windows?먯꽌 UnicodeDecodeError ?섎㈃ SQLite濡??먮룞 ?꾪솚
 def _init_db():
     from app.core.database import Base, engine as _engine, SessionLocal as _session_local
     from app.core.join_lock import LOCK_TABLE
@@ -50,7 +50,7 @@ def _init_db():
             ))
             conn.commit()
             if "sqlite" in str(getattr(_engine, "url", "")):
-                # users.password_hash NULL 허용 (구글 로그인): 기존 NOT NULL 테이블이면 재생성
+                # users.password_hash NULL ?덉슜 (援ш? 濡쒓렇??: 湲곗〈 NOT NULL ?뚯씠釉붿씠硫??ъ깮??
                 try:
                     conn.execute(text("PRAGMA foreign_keys=OFF"))
                     conn.commit()
@@ -68,14 +68,14 @@ def _init_db():
                         conn.execute(text("DROP TABLE users"))
                         conn.execute(text("ALTER TABLE users_new RENAME TO users"))
                         conn.commit()
-                        logging.info("users 테이블을 password_hash NULL 허용으로 마이그레이션했습니다.")
+                        logging.info("users ?뚯씠釉붿쓣 password_hash NULL ?덉슜?쇰줈 留덉씠洹몃젅?댁뀡?덉뒿?덈떎.")
                     conn.execute(text("PRAGMA foreign_keys=ON"))
                     conn.commit()
                 except Exception as e:
                     conn.execute(text("PRAGMA foreign_keys=ON"))
                     conn.commit()
                     if "no such table" not in str(e).lower() and "users" in str(e).lower():
-                        logging.warning("users password_hash 마이그레이션 스킵: %s", e)
+                        logging.warning("users password_hash 留덉씠洹몃젅?댁뀡 ?ㅽ궢: %s", e)
                 try:
                     conn.execute(text("ALTER TABLE agents ADD COLUMN status VARCHAR(50) DEFAULT 'active'"))
                     conn.commit()
@@ -94,8 +94,14 @@ def _init_db():
                         conn.commit()
                     except Exception as e:
                         if "duplicate column name" not in str(e).lower():
-                            logging.warning("agents 컬럼 추가 생략: %s", e)
-                # SQLite: type만 유니크인 구식 인덱스가 있으면 제거 후 partial unique 인덱스로 통일
+                            logging.warning("agents 而щ읆 異붽? ?앸왂: %s", e)
+                try:
+                    conn.execute(text("ALTER TABLE agora_topics ADD COLUMN body TEXT"))
+                    conn.commit()
+                except Exception as e:
+                    if "duplicate column name" not in str(e).lower():
+                        logging.warning("agora_topics.body column migrate skipped: %s", e)
+                # SQLite: type留??좊땲?ъ씤 援ъ떇 ?몃뜳?ㅺ? ?덉쑝硫??쒓굅 ??partial unique ?몃뜳?ㅻ줈 ?듭씪
                 try:
                     r = conn.execute(text(
                         "SELECT name, sql FROM sqlite_master WHERE tbl_name='games' AND type='index' AND sql IS NOT NULL"
@@ -105,12 +111,12 @@ def _init_db():
                         if not sql:
                             continue
                         s = (sql or "").upper()
-                        # type만 유니크이고 WHERE가 없으면 구식 인덱스 → 제거
+                        # type留??좊땲?ъ씠怨?WHERE媛 ?놁쑝硫?援ъ떇 ?몃뜳?????쒓굅
                         if "UNIQUE" in s and "TYPE" in s and "WHERE" not in s:
                             conn.execute(text(f"DROP INDEX IF EXISTS {name}"))
                             conn.commit()
-                            logging.info("games 구식 유니크 인덱스 제거: %s", name)
-                    # partial unique 인덱스가 없으면 생성 (create_all이 이미 했을 수 있음)
+                            logging.info("games 援ъ떇 ?좊땲???몃뜳???쒓굅: %s", name)
+                    # partial unique ?몃뜳?ㅺ? ?놁쑝硫??앹꽦 (create_all???대? ?덉쓣 ???덉쓬)
                     conn.execute(text(
                         "CREATE UNIQUE INDEX IF NOT EXISTS ix_games_one_waiting_per_type_sqlite "
                         "ON games (type) WHERE status = 'waiting'"
@@ -118,18 +124,19 @@ def _init_db():
                     conn.commit()
                 except Exception as e:
                     if "duplicate column name" not in str(e).lower():
-                        logging.warning("games SQLite 인덱스 정리 중 오류(무시 가능): %s", e)
+                        logging.warning("games SQLite ?몃뜳???뺣━ 以??ㅻ쪟(臾댁떆 媛??: %s", e)
             elif "postgresql" in str(getattr(_engine, "url", "")).lower():
-                # PostgreSQL 전용: 컬럼 추가(이미 있으면 스킵). Oracle 등 다른 서버 DB는 create_all만 사용
+                # PostgreSQL ?꾩슜: 而щ읆 異붽?(?대? ?덉쑝硫??ㅽ궢). Oracle ???ㅻⅨ ?쒕쾭 DB??create_all留??ъ슜
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active'"))
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS challenge_token VARCHAR(255)"))
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS challenge_expires_at TIMESTAMP WITH TIME ZONE"))
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS heartbeat_enabled BOOLEAN DEFAULT FALSE"))
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS heartbeat_interval_hours INTEGER DEFAULT 4"))
                 conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS heartbeat_last_at TIMESTAMP WITH TIME ZONE"))
+                conn.execute(text("ALTER TABLE agora_topics ADD COLUMN IF NOT EXISTS body TEXT"))
                 conn.commit()
     except UnicodeDecodeError as e:
-        logging.warning("PostgreSQL 연결 시 인코딩 오류 → 로컬 SQLite로 전환합니다. (%s)", e)
+        logging.warning("PostgreSQL ?곌껐 ???몄퐫???ㅻ쪟 ??濡쒖뺄 SQLite濡??꾪솚?⑸땲?? (%s)", e)
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
         from sqlalchemy.pool import NullPool
@@ -156,11 +163,17 @@ def _init_db():
                         conn.commit()
                     except Exception as ex2:
                         if "duplicate column name" not in str(ex2).lower():
-                            logging.warning("agents 컬럼 추가 생략: %s", ex2)
+                            logging.warning("agents 而щ읆 異붽? ?앸왂: %s", ex2)
+                try:
+                    conn.execute(text("ALTER TABLE agora_topics ADD COLUMN body TEXT"))
+                    conn.commit()
+                except Exception as ex2:
+                    if "duplicate column name" not in str(ex2).lower():
+                        logging.warning("agora_topics.body column migrate skipped: %s", ex2)
         except Exception as ex:
             if "duplicate column name" not in str(ex).lower():
-                logging.warning("agents.status 컬럼 추가 생략: %s", ex)
-        # 앱에서 사용할 엔진/세션을 SQLite로 교체
+                logging.warning("agents.status 而щ읆 異붽? ?앸왂: %s", ex)
+        # ?깆뿉???ъ슜???붿쭊/?몄뀡??SQLite濡?援먯껜
         import app.core.database as db_module
         db_module.engine = _eng
         db_module.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_eng)
@@ -168,13 +181,13 @@ def _init_db():
 try:
     _init_db()
 except Exception as e:
-    logging.exception("DB 초기화 실패: %s", e)
+    logging.exception("DB 珥덇린???ㅽ뙣: %s", e)
     raise
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """앱 기동 시 WebSocket 매니저 + Agora 스케줄러 시작; 종료 시 스케줄러 정리."""
+    """??湲곕룞 ??WebSocket 留ㅻ땲? + Agora ?ㅼ?以꾨윭 ?쒖옉; 醫낅즺 ???ㅼ?以꾨윭 ?뺣━."""
     from app.core.scheduler import start_scheduler, shutdown_scheduler
     manager.set_event_loop(asyncio.get_running_loop())
     start_scheduler()
@@ -182,7 +195,7 @@ async def lifespan(app: FastAPI):
     shutdown_scheduler()
 
 
-# ── 앱 초기화 ──────────────────────────────────────────
+# ?? ??珥덇린????????????????????????????????????????????
 app = FastAPI(
     lifespan=lifespan,
     title=settings.APP_TITLE,
@@ -192,7 +205,7 @@ app = FastAPI(
     default_response_class=Utf8JSONResponse,
 )
 
-# ── CORS (ALLOWED_ORIGINS 환경변수로 설정. 배포 시 Vercel 도메인 포함) ───────────────
+# ?? CORS (ALLOWED_ORIGINS ?섍꼍蹂?섎줈 ?ㅼ젙. 諛고룷 ??Vercel ?꾨찓???ы븿) ???????????????
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.origins_list,
@@ -201,7 +214,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── JSON 응답 UTF-8 명시 (한글 등 깨짐 방지) ─────────────
+# ?? JSON ?묐떟 UTF-8 紐낆떆 (?쒓? ??源⑥쭚 諛⑹?) ?????????????
 @app.middleware("http")
 async def add_charset_utf8(request, call_next):
     response = await call_next(request)
@@ -211,7 +224,7 @@ async def add_charset_utf8(request, call_next):
     return response
 
 
-# ── 라우터 등록 ────────────────────────────────────────
+# ?? ?쇱슦???깅줉 ????????????????????????????????????????
 app.include_router(auth.router)
 app.include_router(agents.router)
 app.include_router(games.router)
@@ -221,20 +234,20 @@ app.include_router(agora.router)
 app.include_router(heartbeat.router)
 
 
-# ── 전역 예외 처리 (개발 시 500 원인 확인용) ─────────────
+# ?? ?꾩뿭 ?덉쇅 泥섎━ (媛쒕컻 ??500 ?먯씤 ?뺤씤?? ?????????????
 @app.exception_handler(IntegrityError)
 def integrity_error_handler(request, exc: IntegrityError):
-    """UniqueViolation 등 DB 제약 위반 → 409. 원인 파악용 traceback 로그."""
+    """UniqueViolation ??DB ?쒖빟 ?꾨컲 ??409. ?먯씤 ?뚯븙??traceback 濡쒓렇."""
     msg = str(exc).lower()
-    # 409 반환 전에 항상 traceback 로그 (동시성 아닌 경우 원인 확인용)
-    logging.exception("IntegrityError → 409 반환 (발생 위치 확인 위함): %s", exc)
-    detail = "다른 요청이 이미 처리 중입니다. 잠시 후 다시 시도하세요."
+    # 409 諛섑솚 ?꾩뿉 ??긽 traceback 濡쒓렇 (?숈떆???꾨땶 寃쎌슦 ?먯씤 ?뺤씤??
+    logging.exception("IntegrityError ??409 諛섑솚 (諛쒖깮 ?꾩튂 ?뺤씤 ?꾪븿): %s", exc)
+    detail = "?ㅻⅨ ?붿껌???대? 泥섎━ 以묒엯?덈떎. ?좎떆 ???ㅼ떆 ?쒕룄?섏꽭??"
     if "unique" in msg or "duplicate" in msg:
         content = {"detail": detail}
         if settings.APP_ENV in ("development", "test"):
-            content["debug"] = {"raw": str(exc), "hint": "서버 로그에 traceback 확인"}
+            content["debug"] = {"raw": str(exc), "hint": "?쒕쾭 濡쒓렇??traceback ?뺤씤"}
         return Utf8JSONResponse(status_code=409, content=content)
-    content = {"detail": "데이터 제약 위반입니다."}
+    content = {"detail": "?곗씠???쒖빟 ?꾨컲?낅땲??"}
     if settings.APP_ENV in ("development", "test"):
         content["debug"] = {"raw": str(exc)}
     return Utf8JSONResponse(status_code=409, content=content)
@@ -242,24 +255,24 @@ def integrity_error_handler(request, exc: IntegrityError):
 
 @app.exception_handler(Exception)
 def unhandled_exception_handler(request, exc: Exception):
-    """미처리 예외 시 로그 남기고, 개발 환경에서는 응답 본문에 예외 내용 포함."""
+    """誘몄쿂由??덉쇅 ??濡쒓렇 ?④린怨? 媛쒕컻 ?섍꼍?먯꽌???묐떟 蹂몃Ц???덉쇅 ?댁슜 ?ы븿."""
     from fastapi import HTTPException
     if isinstance(exc, HTTPException):
         return Utf8JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-    # 스레드 경계 넘을 때 IntegrityError가 감싸져 올 수 있음 → 409로 변환
+    # ?ㅻ젅??寃쎄퀎 ?섏쓣 ??IntegrityError媛 媛먯떥???????덉쓬 ??409濡?蹂??
     msg = str(exc).lower()
     if isinstance(exc, IntegrityError) or "uniqueviolation" in msg or "duplicate key" in msg:
-        logging.exception("Exception(Integrity/unique) → 409 반환: %s", exc)
-        content = {"detail": "다른 요청이 이미 처리 중입니다. 잠시 후 다시 시도하세요."}
+        logging.exception("Exception(Integrity/unique) ??409 諛섑솚: %s", exc)
+        content = {"detail": "?ㅻⅨ ?붿껌???대? 泥섎━ 以묒엯?덈떎. ?좎떆 ???ㅼ떆 ?쒕룄?섏꽭??"}
         if settings.APP_ENV in ("development", "test"):
-            content["debug"] = {"type": type(exc).__name__, "raw": str(exc), "hint": "서버 로그 traceback 확인"}
+            content["debug"] = {"type": type(exc).__name__, "raw": str(exc), "hint": "?쒕쾭 濡쒓렇 traceback ?뺤씤"}
         return Utf8JSONResponse(status_code=409, content=content)
     cause = getattr(exc, "__cause__", None)
     if cause and isinstance(cause, IntegrityError):
-        logging.exception("Exception(cause=IntegrityError) → 409 반환: %s", exc)
-        content = {"detail": "다른 요청이 이미 처리 중입니다. 잠시 후 다시 시도하세요."}
+        logging.exception("Exception(cause=IntegrityError) ??409 諛섑솚: %s", exc)
+        content = {"detail": "?ㅻⅨ ?붿껌???대? 泥섎━ 以묒엯?덈떎. ?좎떆 ???ㅼ떆 ?쒕룄?섏꽭??"}
         if settings.APP_ENV in ("development", "test"):
-            content["debug"] = {"type": type(exc).__name__, "cause": str(cause), "hint": "서버 로그 traceback 확인"}
+            content["debug"] = {"type": type(exc).__name__, "cause": str(cause), "hint": "?쒕쾭 濡쒓렇 traceback ?뺤씤"}
         return Utf8JSONResponse(status_code=409, content=content)
     tb = traceback.format_exc()
     logging.exception("Unhandled exception: %s", exc)
@@ -275,14 +288,14 @@ def unhandled_exception_handler(request, exc: Exception):
     return Utf8JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
 
-# ── skill.json / SKILL.md 서빙 ─────────────────────────────
+# ?? skill.json / SKILL.md ?쒕튃 ?????????????????????????????
 def _skill_version_path():
     return Path(__file__).resolve().parent / "data" / "skill_version.json"
 
 
 @app.get("/skill.json", include_in_schema=False)
 def serve_skill_json():
-    """스킬 버전 정보. 에이전트가 변경 여부 확인용."""
+    """?ㅽ궗 踰꾩쟾 ?뺣낫. ?먯씠?꾪듃媛 蹂寃??щ? ?뺤씤??"""
     path = _skill_version_path()
     if path.exists():
         try:
@@ -301,7 +314,7 @@ def serve_skill_md():
     ]:
         if path.exists():
             return path.read_text(encoding="utf-8")
-    return "# PlayMolt SKILL.md\n\n준비 중입니다."
+    return "# PlayMolt SKILL.md\n\n以鍮?以묒엯?덈떎."
 
 
 SKILL_NAMES = ("battle", "ox", "mafia", "trial", "agora", "heartbeat")
@@ -309,7 +322,7 @@ SKILL_NAMES = ("battle", "ox", "mafia", "trial", "agora", "heartbeat")
 
 @app.get("/skill_{skill_type}.md", response_class=PlainTextResponse, include_in_schema=False)
 def serve_skill_detail(skill_type: str):
-    """세부 skill 문서 (battle, ox, mafia, trial, agora, heartbeat)."""
+    """?몃? skill 臾몄꽌 (battle, ox, mafia, trial, agora, heartbeat)."""
     if skill_type not in SKILL_NAMES:
         from fastapi import HTTPException
         raise HTTPException(404, "Not found")
@@ -320,18 +333,18 @@ def serve_skill_detail(skill_type: str):
         path = base / f"skill_{skill_type}.md"
         if path.exists():
             return path.read_text(encoding="utf-8")
-    return f"# skill_{skill_type}.md\n\n준비 중입니다."
+    return f"# skill_{skill_type}.md\n\n以鍮?以묒엯?덈떎."
 
 
 @app.get("/games/{game_type}/SKILL.md", response_class=PlainTextResponse, include_in_schema=False)
 def serve_game_skill_md(game_type: str):
-    """하위 호환: /games/{type}/SKILL.md → skill_{type}.md 동일 내용."""
+    """?섏쐞 ?명솚: /games/{type}/SKILL.md ??skill_{type}.md ?숈씪 ?댁슜."""
     if game_type in SKILL_NAMES:
         return serve_skill_detail(game_type)
-    return f"# PlayMolt {game_type} SKILL.md\n\n준비 중입니다."
+    return f"# PlayMolt {game_type} SKILL.md\n\n以鍮?以묒엯?덈떎."
 
 
-# ── 루트 (브라우저 접속 시 안내) ───────────────────────
+# ?? 猷⑦듃 (釉뚮씪?곗? ?묒냽 ???덈궡) ???????????????????????
 @app.get("/")
 def root():
     return {
@@ -343,7 +356,7 @@ def root():
     }
 
 
-# ── 배틀 관전 페이지 (단일 HTML) ───────────────────────
+# ?? 諛고? 愿???섏씠吏 (?⑥씪 HTML) ???????????????????????
 def _find_battle_html():
     base = Path(__file__).resolve().parent.parent  # backend
     for p in [base.parent / "battle.html", base / "battle.html"]:
@@ -354,17 +367,17 @@ def _find_battle_html():
 
 @app.get("/battle", response_class=HTMLResponse, include_in_schema=False)
 def serve_battle_spectator():
-    """드럼 배틀 관전용 페이지. game_id 입력 후 관전 시작으로 WebSocket 연결."""
+    """?쒕읆 諛고? 愿?꾩슜 ?섏씠吏. game_id ?낅젰 ??愿???쒖옉?쇰줈 WebSocket ?곌껐."""
     path = _find_battle_html()
     if not path:
         return HTMLResponse(
-            "<!DOCTYPE html><html><body><h1>battle.html 없음</h1><p>프로젝트 루트 또는 backend 폴더에 battle.html을 두세요.</p></body></html>",
+            "<!DOCTYPE html><html><body><h1>battle.html ?놁쓬</h1><p>?꾨줈?앺듃 猷⑦듃 ?먮뒗 backend ?대뜑??battle.html???먯꽭??</p></body></html>",
             status_code=404,
         )
     return FileResponse(path, media_type="text/html; charset=utf-8")
 
 
-# ── 헬스체크 ───────────────────────────────────────────
+# ?? ?ъ뒪泥댄겕 ???????????????????????????????????????????
 @app.get("/health")
 def health():
     return {"status": "ok", "version": settings.APP_VERSION}

@@ -21,7 +21,7 @@ export function clearStoredToken(): void {
   localStorage.removeItem(TOKEN_KEY)
 }
 
-/** 발급 시 한 번만 받은 API Key를 마이페이지 표시용으로 로컬 저장 (선택) */
+/** 발급 시 한 번만 받은 Pairing Code를 마이페이지 표시용으로 로컬 저장 (선택) */
 export function getStoredApiKey(): string | null {
   if (typeof window === "undefined") return null
   return localStorage.getItem(API_KEY_STORAGE_KEY)
@@ -70,6 +70,22 @@ export interface ApiKeyResponse {
   message?: string
 }
 
+export interface AgentByUserResponse {
+  id: string
+  name: string
+  persona_prompt: string | null
+  total_points: number
+  status: string
+  created_at: string
+  game_stats: Record<string, { wins: number; losses: number; win_rate: number }>
+  total_stats: { wins: number; losses: number; win_rate: number }
+}
+
+export interface AgoraContentByUserResponse {
+  topics: { id: string; title: string; category: string; created_at: string | null }[]
+  comments: { id: string; topic_id: string; topic_title: string; text: string; created_at: string | null }[]
+}
+
 export async function issueApiKey(token: string): Promise<ApiKeyResponse> {
   const res = await fetch(`${API_URL}/api/auth/api-key`, {
     method: "POST",
@@ -90,7 +106,24 @@ export async function issueApiKey(token: string): Promise<ApiKeyResponse> {
   return res.json() as Promise<ApiKeyResponse>
 }
 
+export async function fetchMyAgentByUser(token: string): Promise<AgentByUserResponse> {
+  const res = await fetch(`${API_URL}/api/auth/me/agent`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json() as Promise<AgentByUserResponse>
+}
+
+export async function fetchMyAgoraContentByUser(token: string): Promise<AgoraContentByUserResponse> {
+  const res = await fetch(`${API_URL}/api/auth/me/agora-content`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json() as Promise<AgoraContentByUserResponse>
+}
+
 /** 팝업으로 열 때 사용할 구글 로그인 URL (백엔드 리디렉트) */
 export function getGoogleLoginUrl(): string {
   return `${API_URL}/api/auth/google`
 }
+

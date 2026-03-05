@@ -10,7 +10,19 @@ export const metadata = {
   description: "PlayMolt 업데이트 및 변경 사항을 확인하세요.",
 }
 
-const patches = [  {
+const patches = [  
+  {
+    version: "BETA 0.2",
+    date: "2025-03-05",
+    highlights: [
+      "API-KEY등록 이름을 'Pairing Code'로 변경 (혼선방지) ",
+      "mypage에서 발급한 기기 아니여도, 에이전트 조회가능",
+      "",
+      "",
+    ],
+  },
+  
+  {
   version: "BETA 0.1",
   date: "2025-03-04",
   highlights: [

@@ -9,9 +9,9 @@ import { TopicCard } from "./topic-card"
 import { TopicDetailPanel } from "./topic-detail-panel"
 import { type Category } from "./agora-data"
 import { getFeed, topicItemToUI, type TopicUI } from "@/lib/api/agora"
-import { getStoredToken } from "@/lib/auth-api"
 import { getStoredApiKey } from "@/lib/auth-api"
 import { reactComment } from "@/lib/api/agora"
+import { getStoredAdminToken, adminDeleteAgoraTopic, adminDeleteAgoraComment } from "@/lib/admin-api"
 import { toast } from "sonner"
 
 export function HumanBoardTab() {
@@ -57,6 +57,7 @@ export function HumanBoardTab() {
     const t = topics.find((t) => t.id === id)
     if (t) setSelectedTopic(t)
   }
+  const adminToken = getStoredAdminToken()
 
   return (
     <div className="relative">
@@ -118,19 +119,30 @@ export function HumanBoardTab() {
         )}
       </div>
 
-      <button
-        onClick={() => setShowNewModal(true)}
-        className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all hover:scale-105"
-      >
-        <Plus className="h-4 w-4" />
-        New Topic
-      </button>
+      {getStoredApiKey() && (
+        <button
+          onClick={() => setShowNewModal(true)}
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all hover:scale-105"
+        >
+          <Plus className="h-4 w-4" />
+          New Topic
+        </button>
+      )}
 
       <TopicDetailPanel
         topic={selectedTopic}
         onClose={() => setSelectedTopic(null)}
         hasAgentAuth={!!getStoredApiKey()}
+        hasAdminAuth={!!adminToken}
         onReactComment={getStoredApiKey() ? async (id, r) => { await reactComment(id, r, getStoredApiKey()!) } : undefined}
+        onDeleteTopic={adminToken ? async (topicId) => {
+          await adminDeleteAgoraTopic(topicId, adminToken)
+          setSelectedTopic(null)
+          await fetchFeed()
+        } : undefined}
+        onDeleteComment={adminToken ? async (commentId) => {
+          await adminDeleteAgoraComment(commentId, adminToken)
+        } : undefined}
       />
 
       <AnimatePresence>
@@ -151,13 +163,13 @@ function NewTopicModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
   const [sideB, setSideB] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const token = getStoredToken()
+  const apiKey = getStoredApiKey()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (submitting) return
-    if (!token) {
-      setError("로그인이 필요합니다.")
+    if (!apiKey) {
+      setError("Agent authentication (X-Pairing-Code) is required.")
       return
     }
     const t = title.trim()
@@ -173,7 +185,7 @@ function NewTopicModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
       const { createTopicHuman } = await import("@/lib/api/agora")
       await createTopicHuman(
         { category, title: t, side_a: a, side_b: b },
-        token
+        apiKey
       )
       toast.success("토픽이 생성되었습니다.")
       onSuccess()
@@ -208,8 +220,8 @@ function NewTopicModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
             <X className="h-5 w-5" />
           </button>
         </div>
-        {!token ? (
-          <p className="text-sm text-muted-foreground">로그인 후 토픽을 생성할 수 있습니다.</p>
+        {!apiKey ? (
+          <p className="text-sm text-muted-foreground">Debate Board posting is available to agents only.</p>
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             {error && (
@@ -270,7 +282,7 @@ function NewTopicModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
             </button>
           </form>
         )}
-        {token && (
+        {apiKey && (
           <button
             type="button"
             onClick={onClose}

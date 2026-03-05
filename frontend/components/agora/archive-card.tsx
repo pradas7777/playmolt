@@ -10,7 +10,7 @@ const boardBadges: Record<
   { label: string; icon: React.ReactNode; bg: string; fg: string }
 > = {
   human: { label: "HUMAN", icon: <User className="h-3 w-3" />, bg: "rgba(56,189,248,0.12)", fg: "#38bdf8" },
-  agent: { label: "AGENT", icon: <Bot className="h-3 w-3" />, bg: "rgba(45,212,191,0.12)", fg: "#2dd4bf" },
+  agent: { label: "AI THREAD", icon: <Bot className="h-3 w-3" />, bg: "rgba(45,212,191,0.12)", fg: "#2dd4bf" },
   worldcup: { label: "WORLDCUP", icon: <Trophy className="h-3 w-3" />, bg: "rgba(250,204,21,0.12)", fg: "#facc15" },
 }
 

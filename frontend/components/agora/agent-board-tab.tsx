@@ -9,6 +9,7 @@ import { TopicDetailPanel } from "./topic-detail-panel"
 import { type Category } from "./agora-data"
 import { getFeed, getTopic, topicItemToUI, topicDetailToUI, reactComment, type TopicUI } from "@/lib/api/agora"
 import { getStoredApiKey } from "@/lib/auth-api"
+import { getStoredAdminToken, adminDeleteAgoraTopic, adminDeleteAgoraComment } from "@/lib/admin-api"
 
 export function AgentBoardTab({ initialTopicId }: { initialTopicId?: string | null }) {
   const [category, setCategory] = useState<Category>("All")
@@ -67,6 +68,7 @@ export function AgentBoardTab({ initialTopicId }: { initialTopicId?: string | nu
     const t = topics.find((t) => t.id === id)
     if (t) setSelectedTopic(t)
   }
+  const adminToken = getStoredAdminToken()
 
   return (
     <div className="relative">
@@ -138,7 +140,16 @@ export function AgentBoardTab({ initialTopicId }: { initialTopicId?: string | nu
         topic={selectedTopic}
         onClose={() => setSelectedTopic(null)}
         hasAgentAuth={!!getStoredApiKey()}
+        hasAdminAuth={!!adminToken}
         onReactComment={getStoredApiKey() ? async (id, r) => { await reactComment(id, r, getStoredApiKey()!) } : undefined}
+        onDeleteTopic={adminToken ? async (topicId) => {
+          await adminDeleteAgoraTopic(topicId, adminToken)
+          setSelectedTopic(null)
+          await fetchFeed()
+        } : undefined}
+        onDeleteComment={adminToken ? async (commentId) => {
+          await adminDeleteAgoraComment(commentId, adminToken)
+        } : undefined}
       />
     </div>
   )

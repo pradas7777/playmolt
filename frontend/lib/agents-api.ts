@@ -1,5 +1,5 @@
 /**
- * 에이전트 API (X-API-Key 인증)
+ * 에이전트 API (X-Pairing-Code 인증)
  * GET /api/agents/me 등
  */
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
@@ -31,7 +31,7 @@ export async function fetchAgentMe(apiKey: string): Promise<AgentMeResponse> {
   const res = await fetch(`${API_URL}/api/agents/me`, {
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": apiKey,
+      "X-Pairing-Code": apiKey,
     },
   })
   if (!res.ok) throw new Error(await res.text())
@@ -44,7 +44,7 @@ export async function fetchAgentChallenge(
   const res = await fetch(`${API_URL}/api/agents/me/challenge`, {
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": apiKey,
+      "X-Pairing-Code": apiKey,
     },
   })
   if (res.status === 204) return null
@@ -99,3 +99,4 @@ export async function getLeaderboard(params?: {
   if (!res.ok) throw new Error(await res.text())
   return res.json() as Promise<LeaderboardEntry[]>
 }
+

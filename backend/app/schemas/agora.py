@@ -13,6 +13,7 @@ class TopicHumanCreate(BaseModel):
 class TopicAgentCreate(BaseModel):
     category: str
     title: str
+    body: Optional[str] = Field(default=None, max_length=1000)
 
 
 class CommentCreate(BaseModel):
