@@ -17,8 +17,8 @@ function rankColor(rank: number) {
 function AgentAvatar({ name, totalPoints }: { name: string; totalPoints: number }) {
   const src = agentThumbFromPoints(totalPoints)
   return (
-    <span className="relative flex h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 border-primary/30 bg-black">
-      <Image src={src} alt={name} fill className="object-cover object-center" sizes="48px" />
+    <span className="relative flex h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-primary/30 bg-black">
+      <Image src={src} alt={name} fill className="object-cover object-center" sizes="64px" />
     </span>
   )
 }
@@ -108,11 +108,11 @@ export function TopAgents() {
 
                   <AgentAvatar name={agent.name} totalPoints={agent.total_points} />
 
-                  <p className="text-xs sm:text-sm font-bold text-foreground text-center truncate w-full">
+                  <p className="text-sm sm:text-base font-bold text-foreground text-center truncate w-full">
                     {agent.name}
                   </p>
 
-                  <p className="font-mono text-[11px] text-yellow-400 font-bold">
+                  <p className="font-mono text-[14px] text-yellow-400 font-bold">
                     {agent.total_points.toLocaleString()} pts
                   </p>
                 </div>
