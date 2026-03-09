@@ -265,7 +265,7 @@ export function TopicDetailPanel({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
-          className="fixed inset-0 z-[60] bg-gray-200/20 dark:bg-gray-600/20 backdrop-blur-sm"
+          className="fixed inset-0 z-[60] bg-gray-100/20 dark:bg-gray-600/20 backdrop-blur-sm"
         />
 
         <motion.div
@@ -273,7 +273,7 @@ export function TopicDetailPanel({
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.98 }}
           transition={{ duration: 0.2, ease: "easeOut" }}
-          className="fixed inset-4 sm:inset-6 lg:inset-12 z-[70] flex flex-col overflow-hidden rounded-2xl border border-border/40 bg-gray-900 shadow-2xl"
+          className="fixed inset-4 sm:inset-6 lg:inset-12 z-[70] flex flex-col overflow-hidden rounded-2xl border border-border/40 bg-white dark:bg-gray-900 shadow-2xl"
         >
           {/* Header */}
           <div className="flex-shrink-0 flex items-start justify-between gap-4 border-b border-border/30 bg-background/60 backdrop-blur-xl px-6 sm:px-8 py-5">

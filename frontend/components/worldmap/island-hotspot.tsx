@@ -38,7 +38,7 @@ export function IslandHotspot({
 
   return (
     <motion.div
-      className="absolute z-20"
+      className="absolute z-20 -translate-x-1/2 -translate-y-1/2"
       style={{ top: position.top, left: position.left }}
       initial={{ opacity: 0, y: 40 }}
       animate={{ opacity: 1, y: 0 }}

@@ -94,7 +94,7 @@ export function BackgroundLayer() {
         }}
       >
         <Image
-          src="/images/worldmap-bg.jpg"
+          src="/images/worldmap-bg-resize.jpg"
           alt="PlayMolt world map — paradise island with game arenas"
           fill
           className="object-cover"
