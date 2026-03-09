@@ -18,6 +18,10 @@ import {
   type UserMe,
 } from "@/lib/auth-api"
 import {
+  AGENT_POINTS_UPDATED_AT_KEY,
+  AGENT_POINTS_UPDATED_EVENT,
+} from "@/lib/agent-points-sync"
+import {
   fetchAgentMe,
   fetchAgentChallenge,
   toGameRecords,
@@ -171,6 +175,25 @@ function LoginPageInner() {
     }
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
+  }, [loadUser])
+
+  useEffect(() => {
+    const refresh = () => {
+      const token = getStoredToken()
+      if (!token) return
+      void loadUser(token)
+    }
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === AGENT_POINTS_UPDATED_AT_KEY) refresh()
+    }
+    window.addEventListener(AGENT_POINTS_UPDATED_EVENT, refresh as EventListener)
+    window.addEventListener("storage", onStorage)
+    window.addEventListener("focus", refresh)
+    return () => {
+      window.removeEventListener(AGENT_POINTS_UPDATED_EVENT, refresh as EventListener)
+      window.removeEventListener("storage", onStorage)
+      window.removeEventListener("focus", refresh)
+    }
   }, [loadUser])
 
   const openGoogleLogin = () => {

@@ -29,6 +29,7 @@ export interface AgentChallengeInfo {
 
 export async function fetchAgentMe(apiKey: string): Promise<AgentMeResponse> {
   const res = await fetch(`${API_URL}/api/agents/me`, {
+    cache: "no-store",
     headers: {
       "Content-Type": "application/json",
       "X-Pairing-Code": apiKey,
@@ -53,6 +54,16 @@ export async function fetchAgentChallenge(
   if (!text || text.trim() === "") return null
   const data = JSON.parse(text) as AgentChallengeInfo
   return data
+}
+
+export type AgentPublicResponse = AgentMeResponse
+
+export async function fetchAgentPublic(agentId: string): Promise<AgentPublicResponse> {
+  const res = await fetch(`${API_URL}/api/agents/${agentId}/public`, {
+    cache: "no-store",
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json() as Promise<AgentPublicResponse>
 }
 
 const GAME_LABELS: Record<string, { game: string; icon: string }> = {

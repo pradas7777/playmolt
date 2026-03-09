@@ -30,6 +30,8 @@ import { battleStateToEvents, gameEndToEvent, historyToEvents, buildInitialState
 import { ReplayMode } from "@/components/game/ReplayMode"
 import { GameStartCountdown } from "@/components/game/GameStartCountdown"
 import { WaitingAgentsPanel } from "@/components/game/waiting-agents-panel"
+import { fetchAgentPublic, toGameRecords, type AgentPublicResponse } from "@/lib/agents-api"
+import { emitAgentPointsUpdated } from "@/lib/agent-points-sync"
 
 const CARD_FRAME = "/images/cards/battle_game_card.png"
 const GAS_START = 8
@@ -38,6 +40,8 @@ const BATTLE_UI_POSITIONS = {
   hp: { x: 15, y: 67 },
   energy: { x: 15, y: 88 },
 } as const
+
+type AgentProfileMap = Record<string, AgentPublicResponse>
 
 /** 怨좎젙???쒖떆 ?쒖꽌濡??먯씠?꾪듃 ?뺣젹 (?꾩튂 蹂寃??놁씠 isActive留?諛붾뚮룄濡? */
 function sortAgentsByStableOrder(
@@ -95,6 +99,7 @@ export default function BattleArenaSpectatorPage() {
   const [matchedAt, setMatchedAt] = useState<number | null>(null)
   const [waitingAgents, setWaitingAgents] = useState<{ id: string; name: string }[]>([])
   const [gameStatus, setGameStatus] = useState<string>("waiting")
+  const [agentProfiles, setAgentProfiles] = useState<AgentProfileMap>({})
 
   const cardRefs = useRef<(AgentCardHandle | null)[]>([])
   const wsRef = useRef<GameWebSocket | null>(null)
@@ -107,11 +112,32 @@ export default function BattleArenaSpectatorPage() {
   const replayEventsRef = useRef<import("@/lib/game/eventQueue").GameEvent[]>([])
   const replayInitialStateRef = useRef<{ agents: MappedAgentState[]; round: number } | null>(null)
   const isReplayModeRef = useRef(false)
+  const agentProfilesRef = useRef<AgentProfileMap>({})
   /** ?먯씠?꾪듃 移대뱶 ?꾩튂 怨좎젙?? 泥??섏떊 ??id ?쒖꽌瑜?怨좎젙?섍퀬 ?댄썑?먮뒗 isActive留?蹂寃?*/
   const stableDisplayOrderRef = useRef<string[]>([])
   agentsRef.current = agents
   roundRef.current = round
   isReplayModeRef.current = isReplayMode
+  agentProfilesRef.current = agentProfiles
+
+  const loadAgentProfiles = useCallback(async (agentIds: string[], force = false) => {
+    const uniqueIds = [...new Set(agentIds.filter(Boolean))]
+    const targetIds = force
+      ? uniqueIds
+      : uniqueIds.filter((id) => agentProfilesRef.current[id] == null)
+    if (!targetIds.length) return
+
+    await Promise.all(
+      targetIds.map(async (id) => {
+        try {
+          const profile = await fetchAgentPublic(id)
+          setAgentProfiles((prev) => ({ ...prev, [id]: profile }))
+        } catch (e) {
+          console.warn("[Battle] failed to load agent profile", id, e)
+        }
+      })
+    )
+  }, [])
   /** ?쇱슫???꾪솚: ?꾩껜 ?붾㈃ ?댄럺???쒖떆 ??3珥??湲? ?ㅼ쓬 ?쇱슫?쒖슜 媛?대뜲 濡쒓렇 珥덇린??*/
   const onRoundTransition = useCallback(async (round: number) => {
     setRoundTransitionRound(round)
@@ -356,6 +382,7 @@ export default function BattleArenaSpectatorPage() {
 
       if (event.type === "game_end") {
         lastGameEndRef.current = { winner_id: event.winner_id ?? null, results: event.results }
+        void loadAgentProfiles(agentsRef.current.map((a) => a.id), true)
         eventQueueRef.current?.enqueue(
           gameEndToEvent(event.winner_id ?? null, event.results)
         )
@@ -368,7 +395,17 @@ export default function BattleArenaSpectatorPage() {
       ws.disconnect()
       wsRef.current = null
     }
-  }, [gameId, gameFinished, router])
+  }, [gameId, gameFinished, router, loadAgentProfiles])
+
+  useEffect(() => {
+    if (!agents.length) return
+    void loadAgentProfiles(agents.map((a) => a.id))
+  }, [agents, loadAgentProfiles])
+
+  useEffect(() => {
+    if (!gameOver || !agents.length) return
+    void loadAgentProfiles(agents.map((a) => a.id), true)
+  }, [gameOver, agents, loadAgentProfiles])
 
   // Redirect if not found
   useEffect(() => {
@@ -491,6 +528,11 @@ export default function BattleArenaSpectatorPage() {
                 {([0, 1, 3, 2] as const).map((agentIndex, slotIndex) => {
                   const agent = agents[agentIndex]
                   if (!agent) return null
+                  const profile = agentProfiles[agent.id]
+                  const winRate =
+                    profile?.total_stats?.win_rate != null
+                      ? Math.round(profile.total_stats.win_rate * 100)
+                      : undefined
                   return (
                     <div key={agent.id} className="relative">
                       <AgentCard
@@ -510,9 +552,10 @@ export default function BattleArenaSpectatorPage() {
                         energy={agent.energy}
                         battleUiPositions={BATTLE_UI_POSITIONS}
                         lastAction={agent.lastAction}
-                        persona="AI agent"
-                        totalPoints={0}
-                        winRate={0}
+                        persona={profile?.persona_prompt ?? undefined}
+                        totalPoints={profile?.total_points}
+                        winRate={winRate}
+                        gameRecords={profile ? toGameRecords(profile.game_stats) : undefined}
                         index={slotIndex}
                       />
                       <AnimatePresence>
@@ -558,8 +601,12 @@ export default function BattleArenaSpectatorPage() {
           show={gameOver}
           winnerName={winnerName}
           points={winnerPoints}
-          onDismiss={() => setGameOver(false)}
+          onDismiss={() => {
+            emitAgentPointsUpdated("battle_overlay_dismiss")
+            setGameOver(false)
+          }}
           onWatchReplay={gameFinished ? handleWatchReplay : undefined}
+          onBackToWorldMap={() => emitAgentPointsUpdated("battle_overlay_worldmap")}
         />
       </section>
 

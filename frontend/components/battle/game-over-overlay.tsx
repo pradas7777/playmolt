@@ -9,9 +9,17 @@ interface GameOverProps {
   points: number
   onDismiss?: () => void
   onWatchReplay?: () => void
+  onBackToWorldMap?: () => void
 }
 
-export function GameOverOverlay({ show, winnerName, points, onDismiss, onWatchReplay }: GameOverProps) {
+export function GameOverOverlay({
+  show,
+  winnerName,
+  points,
+  onDismiss,
+  onWatchReplay,
+  onBackToWorldMap,
+}: GameOverProps) {
   return (
     <AnimatePresence>
       {show && (
@@ -88,6 +96,7 @@ export function GameOverOverlay({ show, winnerName, points, onDismiss, onWatchRe
               </button>
               <Link
                 href="/worldmap"
+                onClick={onBackToWorldMap}
                 className="rounded-lg bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:bg-primary/90 transition-colors"
               >
                 Back to World Map

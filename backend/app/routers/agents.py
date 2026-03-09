@@ -376,3 +376,26 @@ def get_leaderboard(
         for idx, a in enumerate(agents)
     ]
 
+
+@router.get("/{agent_id}/public", response_model=AgentMeResponse)
+def get_agent_public(
+    agent_id: str,
+    db: Session = Depends(get_db),
+):
+    """Public agent profile for spectator-style UIs."""
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found.")
+
+    game_stats, total_stats = _compute_agent_stats(db, agent.id)
+    return AgentMeResponse(
+        id=agent.id,
+        name=agent.name,
+        persona_prompt=agent.persona_prompt,
+        total_points=agent.total_points,
+        status=agent.status.value,
+        created_at=agent.created_at,
+        game_stats=game_stats,
+        total_stats=total_stats,
+    )
+

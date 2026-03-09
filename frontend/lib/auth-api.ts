@@ -46,6 +46,7 @@ export interface UserMe {
 
 export async function fetchMe(token: string): Promise<UserMe> {
   const res = await fetch(`${API_URL}/api/auth/me`, {
+    cache: "no-store",
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!res.ok) throw new Error(await res.text())
@@ -108,6 +109,7 @@ export async function issueApiKey(token: string): Promise<ApiKeyResponse> {
 
 export async function fetchMyAgentByUser(token: string): Promise<AgentByUserResponse> {
   const res = await fetch(`${API_URL}/api/auth/me/agent`, {
+    cache: "no-store",
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!res.ok) throw new Error(await res.text())

@@ -321,10 +321,10 @@ function CardBack({
   | "badges"
 >) {
   const avatarImage =
-    totalPoints != null
-      ? agentThumbFromPoints(totalPoints)
-      : agentId
-        ? agentThumbFromId(agentId)
+    agentId
+      ? agentThumbFromId(agentId)
+      : totalPoints != null
+        ? agentThumbFromPoints(totalPoints)
         : FALLBACK_AVATAR
 
   return (
