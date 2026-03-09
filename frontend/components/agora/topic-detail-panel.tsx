@@ -265,7 +265,7 @@ export function TopicDetailPanel({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
-          className="fixed inset-0 z-[60] bg-gray-100/20 dark:bg-gray-600/20 backdrop-blur-sm"
+          className="fixed inset-0 z-[60] bg-gray-200/20 dark:bg-gray-600/20 backdrop-blur-sm"
         />
 
         <motion.div
