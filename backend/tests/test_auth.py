@@ -138,14 +138,79 @@ def test_register_agent():
     assert data["challenge"].get("expires_in_seconds") == 30
 
 
+def test_register_agent_with_pairing_code_header():
+    token = _get_token("agent_pairing@playmolt.com", "agentpairing")
+    key_resp = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token}"})
+    api_key = key_resp.json()["api_key"]
+
+    r = client.post(
+        "/api/agents/register",
+        headers={"X-Pairing-Code": api_key},
+        json={"name": "PairBot", "persona_prompt": "pairing header"},
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["name"] == "PairBot"
+
+
+def test_register_agent_mismatched_headers_fails():
+    token = _get_token("agent_mismatch@playmolt.com", "agentmismatch")
+    key_resp = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token}"})
+    api_key = key_resp.json()["api_key"]
+
+    r = client.post(
+        "/api/agents/register",
+        headers={
+            "X-Pairing-Code": api_key,
+            "X-API-Key": "pl_live_different_value",
+        },
+        json={"name": "MismatchBot"},
+    )
+    assert r.status_code == 400
+    assert "do not match" in r.json()["detail"]
+
+
 def test_register_agent_duplicate():
+    """같은 API KEY로 재등록 시 name/persona 업데이트 허용 (200)"""
     token = _get_token("dup_agent@playmolt.com", "dupagent")
     key_resp = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token}"})
     api_key = key_resp.json()["api_key"]
 
-    client.post("/api/agents/register", headers={"X-API-Key": api_key}, json={"name": "Bot1"})
-    r = client.post("/api/agents/register", headers={"X-API-Key": api_key}, json={"name": "Bot2"})
-    assert r.status_code == 409
+    client.post("/api/agents/register", headers={"X-API-Key": api_key}, json={"name": "Bot1", "persona_prompt": "퍼소나1"})
+    r = client.post("/api/agents/register", headers={"X-API-Key": api_key}, json={"name": "Bot2", "persona_prompt": "퍼소나2"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["name"] == "Bot2"
+    assert data["persona_prompt"] == "퍼소나2"
+
+
+def test_register_agent_name_auto_numbering_across_accounts():
+    token1 = _get_token("dupname1@playmolt.com", "dupname1")
+    key1 = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token1}"}).json()["api_key"]
+    r1 = client.post("/api/agents/register", headers={"X-API-Key": key1}, json={"name": "SameBot"})
+    assert r1.status_code == 201
+    assert r1.json()["name"] == "SameBot"
+
+    token2 = _get_token("dupname2@playmolt.com", "dupname2")
+    key2 = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token2}"}).json()["api_key"]
+    r2 = client.post("/api/agents/register", headers={"X-API-Key": key2}, json={"name": "SameBot"})
+    assert r2.status_code == 201
+    assert r2.json()["name"] == "SameBot-2"
+
+
+def test_reregister_agent_name_auto_numbering_when_conflict():
+    token1 = _get_token("dupname3@playmolt.com", "dupname3")
+    key1 = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token1}"}).json()["api_key"]
+    client.post("/api/agents/register", headers={"X-API-Key": key1}, json={"name": "AlphaBot"})
+
+    token2 = _get_token("dupname4@playmolt.com", "dupname4")
+    key2 = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token2}"}).json()["api_key"]
+    r = client.post("/api/agents/register", headers={"X-API-Key": key2}, json={"name": "AlphaBot"})
+    assert r.status_code == 201
+    assert r.json()["name"] == "AlphaBot-2"
+
+    r2 = client.post("/api/agents/register", headers={"X-API-Key": key2}, json={"name": "AlphaBot"})
+    assert r2.status_code == 200
+    assert r2.json()["name"] == "AlphaBot-2"
 
 
 def test_persona_injection_blocked():
@@ -199,6 +264,44 @@ def test_get_api_key_info_without_key():
     assert data["api_key_last4"] is None
 
 
+def test_get_my_agent_by_user_with_jwt():
+    token = _get_token("jwtagent@playmolt.com", "jwtagent")
+    key_resp = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token}"})
+    api_key = key_resp.json()["api_key"]
+    client.post("/api/agents/register", headers={"X-Pairing-Code": api_key}, json={"name": "JwtBot"})
+
+    r = client.get("/api/auth/me/agent", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["name"] == "JwtBot"
+    assert data["id"]
+
+
+def test_get_my_agent_by_user_without_agent_returns_404():
+    token = _get_token("jwtnoagent@playmolt.com", "jwtnoagent")
+    r = client.get("/api/auth/me/agent", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 404
+
+
+def test_get_my_agora_content_by_user_with_jwt():
+    token = _get_token("jwtagora@playmolt.com", "jwtagora")
+    key_resp = client.post("/api/auth/api-key", headers={"Authorization": f"Bearer {token}"})
+    api_key = key_resp.json()["api_key"]
+    client.post("/api/agents/register", headers={"X-Pairing-Code": api_key}, json={"name": "JwtAgoraBot"})
+
+    r = client.get("/api/auth/me/agora-content", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert "topics" in data and isinstance(data["topics"], list)
+    assert "comments" in data and isinstance(data["comments"], list)
+
+
+def test_get_my_agora_content_by_user_without_agent_returns_404():
+    token = _get_token("jwtnoagora@playmolt.com", "jwtnoagora")
+    r = client.get("/api/auth/me/agora-content", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 404
+
+
 def test_games_meta():
     r = client.get("/api/games/meta")
     assert r.status_code == 200
@@ -242,6 +345,48 @@ def test_agents_leaderboard_sorted_by_points():
     data = r.json()
     assert [entry["name"] for entry in data] == ["BotHigh", "BotLow"]
     assert [entry["rank"] for entry in data] == [1, 2]
+
+
+def test_get_agent_public_profile():
+    from app.models.user import User
+    from app.models.api_key import ApiKey
+    from app.models.agent import Agent, AgentStatus
+
+    db = TestingSession()
+    try:
+        u = User(email="public_agent@test.com", username="publicagent", password_hash=None)
+        db.add(u)
+        db.commit()
+        db.refresh(u)
+
+        k = ApiKey(user_id=u.id, key="pl_live_public_agent")
+        db.add(k)
+        db.commit()
+        db.refresh(k)
+
+        a = Agent(
+            user_id=u.id,
+            api_key_id=k.id,
+            name="PublicBot",
+            persona_prompt="public profile persona",
+            status=AgentStatus.active,
+            total_points=77,
+        )
+        db.add(a)
+        db.commit()
+        db.refresh(a)
+        agent_id = a.id
+    finally:
+        db.close()
+
+    r = client.get(f"/api/agents/{agent_id}/public")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["id"] == agent_id
+    assert data["name"] == "PublicBot"
+    assert data["persona_prompt"] == "public profile persona"
+    assert data["total_points"] == 77
+    assert "total_stats" in data
 
 
 def test_my_recent_games_returns_finished_games_only():

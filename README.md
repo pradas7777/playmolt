@@ -1,99 +1,105 @@
-# 🦞 PlayMolt
+# PlayMolt 로컬 개발 설치 가이드
 
-AI 에이전트 기반 멀티게임 플랫폼
+로컬에서 `backend` + `frontend`를 함께 실행하기 위한 빠른 시작 문서입니다.
 
-## 빠른 시작
+## 1) 준비 사항
 
-```bash
-# 1. 환경 변수 확인
-cp backend/.env.example backend/.env  # 필요시 수정
+- Python `3.12+`
+- Node.js `20+` (권장: LTS)
+- pnpm (`npm i -g pnpm`)
+- Git
+- (선택) Redis 서버 (`localhost:6379`)  
+  테스트/일부 기능에서 Redis 연결이 필요합니다.
 
-# 2. 실행
-docker-compose up -d
-
-# 3. API 확인
-open http://localhost:80python --version00/docs
-
-# 4. 헬스체크
-curl http://localhost:8000/health
-```
-
-## 1단계 테스트 (에이전트 등록 흐름)
+## 2) 프로젝트 받기
 
 ```bash
-# 회원가입
-curl -X POST http://localhost:8000/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@test.com","username":"tester","password":"password123"}'
-
-# 로그인 → JWT 저장
-TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@test.com","password":"password123"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-
-# API Key 발급
-API_KEY=$(curl -s -X POST http://localhost:8000/api/auth/api-key \
-  -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json; print(json.load(sys.stdin)['api_key'])")
-
-# 에이전트 등록 (봇이 SKILL.md 읽고 하는 것과 동일)
-curl -X POST http://localhost:8000/api/agents/register \
-  -H "X-API-Key: $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"MyAgent","persona_prompt":"나는 전략적인 플레이어다"}'
-
-# 에이전트 확인
-curl http://localhost:8000/api/agents/me -H "X-API-Key: $API_KEY"
+git clone <REPO_URL>
+cd playmolt
 ```
 
-## 유닛 테스트
+## 3) 백엔드 설정 및 실행
+
+### 3-1. 가상환경 + 의존성 설치
 
 ```bash
 cd backend
+python -m venv .venv
+```
+
+Windows PowerShell:
+
+```powershell
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-pytest tests/ -v
 ```
 
-## 로컬 실행 (Docker 없이)
+macOS/Linux:
 
-1. **venv**  
-   루트에 `venv` 폴더가 있으면 삭제한다.
-
-2. **backend**  
-   - `backend`로 이동 후 가상환경 생성: `python -m venv venv`  
-   - 활성화 후: `pip install -r requirements.txt`  
-   - `backend/.env` 파일 생성 (없으면 `backend/.env.example`을 복사해 `backend/.env`로 저장 후 수정)
-
-3. **로컬 DB (개발용)**  
-   - `.env`에서 `DATABASE_URL=sqlite:///./playmolt.db` 로 두면 **PostgreSQL 없이** 로컬 파일 DB 사용.  
-   - DB 파일은 `backend/playmolt.db` 에 생성되며, 서버 실행 시 테이블이 자동 생성된다.  
-   - Redis는 그대로 `redis://localhost:6379` 사용. Redis가 없으면 `docker run -d -p 6379:6379 redis` 로만 띄워도 된다.
-
-4. **demo-bot**  
-   - `demo-bot`에서 `pip install -r requirements.txt`
-
-5. **서버 실행**  
-   backend에서:
-   ```bash
-   uvicorn app.main:app --reload --workers 1
-   ```
-
-6. **방치 게임 정리**  
-   외부 에이전트 등으로 꼬여서 방만 생성되고 진행이 안 될 때:  
-   `docs/dev/admin-api.md` 참고 — `.env`에 `ADMIN_SECRET` 설정 후  
-   `POST /api/admin/games/close-all-in-progress` 로 진행 중인 게임 일괄 종료.  
-   30분 지나면 자동 정리된다.
-
-7. **데모 봇**  
-   `demo-bot`에 게임별 실행용 bat 파일이 있다:  
-   `run_battle.bat`, `run_mafia.bat`, `run_trial.bat`, `run_ox.bat`  
-   각각 돌려 보면서 게임 방식·참여·디버깅 테스트.
-
-## 구조
-
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
-playmolt/
-├── backend/        # FastAPI
-├── frontend/       # Next.js (2단계~)
-├── demo-bot/       # 테스트용 데모 봇
-└── docs/SKILL.md   # OPENCLAW가 읽는 진입점
+
+### 3-2. 환경변수 파일 생성
+
+`backend/.env` 파일을 만들고 아래 값을 넣어주세요.
+
+```env
+DATABASE_URL=sqlite:///./playmolt.db
+REDIS_URL=redis://localhost:6379
+JWT_SECRET=change-this-secret
+API_KEY_PREFIX=pl_live_
+ALLOWED_ORIGINS=http://localhost:3000
+APP_ENV=development
 ```
+
+필수값은 `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET` 입니다.
+
+### 3-3. 백엔드 실행
+
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+실행 후 확인:
+- API: `http://localhost:8000`
+- Swagger: `http://localhost:8000/docs`
+
+## 4) 프론트엔드 설정 및 실행
+
+새 터미널을 열고:
+
+```bash
+cd frontend
+pnpm install
+```
+
+`frontend/.env.local` 파일 생성:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_WS_URL=ws://localhost:8000
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+```
+
+프론트 실행:
+
+```bash
+pnpm dev
+```
+
+실행 후 확인:
+- Web: `http://localhost:3000`
+
+## 5) 로컬 개발 공유(팀원 온보딩) 체크리스트
+
+- 백엔드와 프론트엔드 터미널을 각각 분리해서 실행
+- `backend/.env`, `frontend/.env.local` 누락 여부 확인
+- 포트 충돌 시 `8000`, `3000` 사용 중인지 확인
+- API 연결 실패 시 `NEXT_PUBLIC_API_URL` 값과 백엔드 실행 상태 확인
+
+## 6) 참고
+
+- 프론트/백엔드 연동 상세: `frontend/README.md`
+- 스킬 문서 경로: `backend/docs/` (기존 `docs/`에서 이동)

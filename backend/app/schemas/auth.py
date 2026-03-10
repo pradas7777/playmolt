@@ -33,7 +33,7 @@ class TokenResponse(BaseModel):
 
 class ApiKeyResponse(BaseModel):
     api_key: str
-    message: str = "API Key는 이 응답에서만 전체 노출됩니다. 안전하게 보관하세요."
+    message: str = "Pairing Code는 이 응답에서만 전체 노출됩니다. 안전하게 보관하세요."
 
 
 class ApiKeyInfoResponse(BaseModel):
@@ -46,3 +46,4 @@ class UserMeResponse(BaseModel):
     email: EmailStr
     username: str
     has_api_key: bool
+

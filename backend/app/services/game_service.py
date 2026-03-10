@@ -204,7 +204,7 @@ def get_engine(game: Game, db: Session):
 
 def _required_agents(game_type: GameType) -> int:
     """게임 타입별 필요 참가 인원."""
-    n = {GameType.battle: 4, GameType.mafia: 6, GameType.ox: 5, GameType.trial: 5}.get(game_type, 4)
+    n = {GameType.battle: 4, GameType.mafia: 5, GameType.ox: 5, GameType.trial: 6}.get(game_type, 4)
     return n
 
 
@@ -248,18 +248,23 @@ def _default_config(game_type: GameType) -> dict:
             "max_rounds": 15,
             "gas_random_start": 8,
             "gas_all_start": 11,
+            "phase_timeout_seconds": 30,
+            "round_advance_delay_seconds": 5,
         },
         GameType.ox: {
             "max_agents": 5,
             "max_rounds": 5,
+            "phase_timeout_seconds": 30,
         },
         GameType.mafia: {
-            "max_agents": 6,
+            "max_agents": 5,
             "wolf_count": 1,
             "max_rounds": 5,
+            "phase_timeout_seconds": 60,
         },
         GameType.trial: {
             "max_agents": 6,
+            "phase_timeout_seconds": 60,
         },
     }
     return configs.get(game_type, {})

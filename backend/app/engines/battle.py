@@ -47,10 +47,13 @@ class BattleEngine(BaseGameEngine):
 
     MAX_AGENTS = 4
     MAX_ROUNDS = 15
+    # 매칭 완료 후 1라운드 시작 전 대기 시간(초)
+    MATCH_DELAY_SEC = 10
     # 로그 전용: 프론트엔드가 "이 시간만큼 대기 표시"할 때 쓸 값. 백엔드는 기다리지 않고 즉시 collect.
     DISPLAY_COUNTDOWN_SEC = 20
     # collect 단계에서 이 시간(초) 안에 액션 안 낸 생존자는 charge로 처리해 라운드 진행 (외부 에이전트 이탈 대비)
-    COLLECT_TIMEOUT_SEC = 45
+    COLLECT_TIMEOUT_SEC = 30
+    ROUND_ADVANCE_DELAY_SEC = 2
     GAS_RANDOM_START = 8
     GAS_ALL_START = 11
 
@@ -64,27 +67,52 @@ class BattleEngine(BaseGameEngine):
             **self.game.config,
             "battle_state": {
                 "round": 0, "phase": "waiting", "agents": {},
-                "action_order": [], "pending_actions": {},
+                "action_order": [], "pending_actions": {}, "all_submitted_at": None,
                 "round_log": [], "history": [],
             }
         }
         flag_modified(self.game, "config")
         self.db.commit()
 
-    def _commit(self, new_bs: dict):
+    def _commit(self, new_bs: dict, broadcast_bs: dict | None = None):
+        """Persist new_bs. Broadcast broadcast_bs if given, else new_bs (관전용 순차 재생을 위해 round_log 포함 가능)."""
         self.game.config = {**self.game.config, "battle_state": new_bs}
         flag_modified(self.game, "config")  # JSON 컬럼 변경 감지 (안 하면 commit 후에도 DB에 반영 안 됨)
         self.db.commit()
         from app.core.connection_manager import manager
+        to_broadcast = copy.deepcopy(broadcast_bs) if broadcast_bs is not None else copy.deepcopy(new_bs)
+        for aid, astate in (to_broadcast.get("agents") or {}).items():
+            agent = self.db.query(Agent).filter_by(id=aid).first()
+            astate["name"] = agent.name if agent else aid
         manager.schedule_broadcast(
             self.game.id,
-            {"type": "state_update", "battle_state": new_bs},
+            {"type": "state_update", "battle_state": to_broadcast},
         )
 
     def _bs(self) -> dict:
         return copy.deepcopy(self.game.config["battle_state"])
 
+    def _mark_matched(self):
+        """매칭 완료 처리: status=running, phase=waiting, matched_at 기록. 10초 후 get_state에서 _start_game 호출 시 실제 시작."""
+        super()._start_game()
+        bs = self._bs()
+        bs["phase"] = "waiting"
+        bs["matched_at"] = time.time()
+        self._commit(bs)
+
     def _start_game(self):
+        bs = self._bs()
+        matched_at = bs.get("matched_at")
+        has_agents = bool(bs.get("agents") and bs.get("action_order"))
+
+        if not has_agents and matched_at is None:
+            self._mark_matched()
+            return
+        if matched_at is not None and time.time() - matched_at < self.MATCH_DELAY_SEC:
+            return
+        if has_agents:
+            return
+        # matched_at 있고 10초 경과 → 실제 게임 시작
         super()._start_game()
         self._setup_agents()
 
@@ -118,6 +146,7 @@ class BattleEngine(BaseGameEngine):
         })
         bs["phase"] = "collect"
         bs["collect_entered_at"] = time.time()
+        bs["all_submitted_at"] = None
         self._commit(bs)
 
     def process_action(self, agent: Agent, action: dict) -> dict:
@@ -125,6 +154,9 @@ class BattleEngine(BaseGameEngine):
             return {"success": False, "error": "GAME_NOT_RUNNING"}
 
         lock = _get_action_lock(self.game.id)
+        delay_then_apply = False
+        delay_sec = 0
+        validated_error = None
         with lock:
             # 동시 제출 시 최신 pending_actions를 읽기 위해 DB에서 다시 로드
             self.db.refresh(self.game)
@@ -143,51 +175,114 @@ class BattleEngine(BaseGameEngine):
             if not validated["success"]:
                 # 잘못된 액션도 charge로 기록해, 한 명의 bad request가 나머지 봇 진행을 막지 않도록 함
                 bs["pending_actions"][agent.id] = {"type": "charge"}
+                validated_error = validated
             else:
                 bs["pending_actions"][agent.id] = validated["action"]
 
             alive_agents = [aid for aid, s in bs["agents"].items() if s["alive"]]
             all_submitted = set(alive_agents) == set(bs["pending_actions"].keys())
+            filled_by_timeout = False
             if not all_submitted:
-                # collect 타임아웃: 미제출자는 charge로 처리해 라운드 진행 (외부 에이전트 이탈 시 테스트 봇만 진행 가능)
+                # collect 타임아웃: 미제출자는 default_action(charge)로 처리해 라운드 진행
                 entered = bs.get("collect_entered_at") or 0
-                if time.time() - entered >= self.COLLECT_TIMEOUT_SEC:
+                if time.time() - entered >= self._collect_timeout_sec():
                     missing = [aid for aid in alive_agents if aid not in bs["pending_actions"]]
                     for aid in missing:
-                        bs["pending_actions"][aid] = {"type": "charge"}
-                    _logger.info("battle collect timeout game_id=%s round=%s 미제출 charge 처리 agent_ids=%s", self.game.id, bs.get("round"), missing)
+                        bs["pending_actions"][aid] = self.default_action(aid)
+                    _logger.info(
+                        "battle collect timeout game_id=%s round=%s missing default_action agent_ids=%s",
+                        self.game.id,
+                        bs.get("round"),
+                        missing,
+                    )
                     all_submitted = True
+                    filled_by_timeout = True
+            if all_submitted:
+                bs["all_submitted_at"] = bs.get("all_submitted_at") or time.time()
+            else:
+                bs["all_submitted_at"] = None
             self._commit(bs)
 
             if all_submitted:
-                self._apply_round()
+                if filled_by_timeout or int(bs.get("round") or 0) <= 1:
+                    self._apply_round()
+                else:
+                    delay_then_apply = True
+                    delay_sec = self._round_advance_delay_sec()
 
-            if not validated["success"]:
-                return validated
-        return {"success": True, "message": "행동이 접수되었습니다"}
+            if validated_error is not None and not delay_then_apply:
+                return validated_error
+        if delay_then_apply:
+            time.sleep(delay_sec)
+            self.try_advance_collect_after_delay()
+        if validated_error is not None:
+            return validated_error
+        return {"success": True, "message": "action accepted"}
 
-    def _maybe_apply_collect_timeout(self) -> None:
-        """collect 단계에서 타임아웃 시 미제출자를 charge로 채우고 라운드 적용. get_state 호출 시에도 진행되도록."""
+    def _collect_timeout_sec(self) -> int:
+        return (self.game.config or {}).get("phase_timeout_seconds", self.COLLECT_TIMEOUT_SEC)
+
+    def _round_advance_delay_sec(self) -> int:
+        return int((self.game.config or {}).get("round_advance_delay_seconds", self.ROUND_ADVANCE_DELAY_SEC))
+
+    def default_action(self, agent_id: str) -> dict:
+        return {"type": "charge"}
+
+    def _maybe_apply_collect_timeout(self) -> bool:
+        """collect 단계에서 타임아웃 시 미제출자에 default_action 주입 후 라운드 적용. 1명 이상 주입 시 True."""
         if self.game.status != GameStatus.running:
-            return
+            return False
         lock = _get_action_lock(self.game.id)
         with lock:
             self.db.refresh(self.game)
             bs = self._bs()
             if bs.get("phase") != "collect":
-                return
+                return False
             alive_agents = [aid for aid, s in bs["agents"].items() if s["alive"]]
             if set(alive_agents) == set(bs.get("pending_actions", {}).keys()):
-                return
+                return False
             entered = bs.get("collect_entered_at") or 0
-            if time.time() - entered < self.COLLECT_TIMEOUT_SEC:
-                return
+            if time.time() - entered < self._collect_timeout_sec():
+                return False
             missing = [aid for aid in alive_agents if aid not in bs["pending_actions"]]
             for aid in missing:
-                bs["pending_actions"][aid] = {"type": "charge"}
+                bs["pending_actions"][aid] = self.default_action(aid)
             _logger.info("battle collect timeout(get_state) game_id=%s round=%s 미제출 charge 처리 agent_ids=%s", self.game.id, bs.get("round"), missing)
+            bs["all_submitted_at"] = time.time()
             self._commit(bs)
             self._apply_round()
+            return len(missing) > 0
+
+    def try_advance_collect_after_delay(self) -> bool:
+        if self.game.status != GameStatus.running:
+            return False
+        lock = _get_action_lock(self.game.id)
+        with lock:
+            self.db.refresh(self.game)
+            bs = self._bs()
+            if bs.get("phase") != "collect":
+                return False
+            alive_agents = [aid for aid, s in bs.get("agents", {}).items() if s.get("alive")]
+            if set(alive_agents) != set((bs.get("pending_actions") or {}).keys()):
+                return False
+            round_num = int(bs.get("round") or 0)
+            if round_num <= 1:
+                self._apply_round()
+                return True
+            submitted_at = bs.get("all_submitted_at")
+            if submitted_at is None:
+                bs["all_submitted_at"] = time.time()
+                self._commit(bs)
+                return False
+            if time.time() - float(submitted_at) < self._round_advance_delay_sec():
+                return False
+            self._apply_round()
+            return True
+
+    def apply_phase_timeout(self) -> bool:
+        timeout_applied = self._maybe_apply_collect_timeout()
+        delayed_advanced = self.try_advance_collect_after_delay()
+        return timeout_applied or delayed_advanced
 
     def _validate_action(self, agent_id, action, agent_state, bs):
         action_type = action.get("type")
@@ -221,8 +316,13 @@ class BattleEngine(BaseGameEngine):
 
         for agent_id in order:
             ag = bs["agents"][agent_id]
+            # re-check: might have died earlier this round
             if not ag["alive"]:
-                bs["round_log"].append({"agent_id": agent_id, "type": "skip", "reason": "dead_before_action"})
+                bs["round_log"].append({
+                    "agent_id": agent_id,
+                    "type": "skip",
+                    "reason": "dead_before_action",
+                })
                 continue
 
             action = bs["pending_actions"].get(agent_id, {"type": "charge"})
@@ -247,12 +347,17 @@ class BattleEngine(BaseGameEngine):
                 if not tg or not tg["alive"]:
                     bs["round_log"].append({"agent_id": agent_id, "type": "attack_invalid", "target_id": tid})
                 elif tid in defenders:
+                    # blocked: no HP change → defender cannot die from this attack
                     bs["round_log"].append({"agent_id": agent_id, "type": "attack_blocked", "target_id": tid, "damage": dmg})
                 else:
                     tg["hp"] -= dmg
                     bs["round_log"].append({"agent_id": agent_id, "type": "attack_hit", "target_id": tid, "damage": dmg, "target_hp_after": tg["hp"]})
+                    if tg["hp"] <= 0:
+                        tg["alive"] = False
+                        tg["hp"] = 0
+                        bs["round_log"].append({"type": "death", "agent_id": tid})
 
-        bs = self._process_deaths(bs)
+        # deaths handled inline above; _process_deaths only used in _apply_gas
         bs = self._apply_gas(bs)
 
         alive = [(aid, s) for aid, s in bs["agents"].items() if s["alive"]]
@@ -292,10 +397,12 @@ class BattleEngine(BaseGameEngine):
             self._commit(bs)
             self.finish()
         else:
+            # 관전용: 브로드캐스트에는 방금 끝난 라운드의 round_log 포함 (프론트 순차 재생용)
+            round_log_for_broadcast = list(bs["round_log"])
             bs["round"] += 1
             bs["pending_actions"] = {}
+            bs["all_submitted_at"] = None
             bs["round_log"] = []
-            # 로그만 남기고 백엔드는 기다리지 않음. 프론트가 display_duration_sec 동안 대기 표시.
             bs.setdefault("history", []).append({
                 "phase": "countdown",
                 "round": bs["round"],
@@ -306,7 +413,9 @@ class BattleEngine(BaseGameEngine):
             alive_order = [a for a in bs["action_order"] if bs["agents"][a]["alive"]]
             if alive_order:
                 bs["action_order"] = alive_order[1:] + [alive_order[0]]
-            self._commit(bs)
+            broadcast_bs = copy.deepcopy(bs)
+            broadcast_bs["round_log"] = round_log_for_broadcast
+            self._commit(bs, broadcast_bs=broadcast_bs)
             # 라운드 종료 이벤트 (방금 끝난 라운드 기준)
             from app.core.connection_manager import manager
             ended_round = bs["round"] - 1
@@ -342,6 +451,9 @@ class BattleEngine(BaseGameEngine):
         alive = [(aid, s) for aid, s in bs["agents"].items() if s["alive"]]
         if not alive:
             return bs
+        # 1명만 살아있으면 가스 미발동 (승자 확정 직전 라운드에서 가스로 죽는 것 방지)
+        if len(alive) <= 1:
+            return bs
         if rnd >= self.GAS_ALL_START:
             for aid, _ in alive:
                 bs["agents"][aid]["hp"] -= 1
@@ -361,6 +473,7 @@ class BattleEngine(BaseGameEngine):
         # collect 타임아웃: state만 폴링하는 봇이 있어도 미제출자 charge 처리 후 라운드 진행
         if self.game.status == GameStatus.running and bs.get("phase") == "collect":
             self._maybe_apply_collect_timeout()
+            self.try_advance_collect_after_delay()
             self.db.refresh(self.game)
             bs = self.game.config.get("battle_state") or {}
         from app.models.game import GameParticipant
@@ -374,7 +487,7 @@ class BattleEngine(BaseGameEngine):
                 if len(participants) >= self.MAX_AGENTS and self.game.status == GameStatus.waiting:
                     self._start_game()
             bs = self.game.config.get("battle_state") or {}
-        # 게임은 이미 running인데 phase가 아직 waiting이면(4명 참가 직후 누락 등) 여기서 시작 처리
+        # 게임은 이미 running인데 phase가 아직 waiting이면: matched_at 10초 경과 시 _start_game() 호출
         elif (
             self.game.status == GameStatus.running
             and bs.get("phase") == "waiting"
@@ -387,7 +500,9 @@ class BattleEngine(BaseGameEngine):
                 if bs.get("phase") == "waiting" and (not bs.get("agents") or not bs.get("action_order")):
                     participants = self.db.query(GameParticipant).filter_by(game_id=self.game.id).all()
                     if len(participants) >= self.MAX_AGENTS:
-                        self._setup_agents()
+                        matched_at = bs.get("matched_at")
+                        if matched_at is not None and time.time() - matched_at >= self.MATCH_DELAY_SEC:
+                            self._start_game()
                 bs = self.game.config.get("battle_state") or {}
 
         ag = bs.get("agents", {}).get(agent.id, {})
@@ -402,7 +517,9 @@ class BattleEngine(BaseGameEngine):
                     "alive": s["alive"], "attack_count": s["attack_count"],
                 })
 
-        allowed = ["attack", "charge"]
+        allowed = ["attack"]
+        if ag.get("energy", 0) < 3:
+            allowed.append("charge")
         if ag.get("defend_streak", 0) < 3:
             allowed.append("defend")
 
@@ -410,16 +527,35 @@ class BattleEngine(BaseGameEngine):
         history = bs.get("history", [])
         round_num = bs.get("round", 0)
         phase = bs.get("phase", "waiting")
+        matched_at = bs.get("matched_at")
+        countdown_sec_remaining = None
+        if phase == "waiting" and matched_at is not None:
+            elapsed = time.time() - matched_at
+            countdown_sec_remaining = max(0, int(self.MATCH_DELAY_SEC - elapsed))
 
         # 에이전트가 아직 battle_state에 없으면(대기 중) isAlive 기본 True
         is_alive = ag.get("alive", True) if ag else True
-        return {
+        agents_map = bs.get("agents", {})
+        current_turn_agent_id = action_order[0] if action_order else None
+        turn_order_display = [
+            {
+                "position": i + 1,
+                "agent_id": aid,
+                "is_current": i == 0,
+                "alive": agents_map.get(aid, {}).get("alive", False),
+            }
+            for i, aid in enumerate(action_order)
+            if agents_map.get(aid, {}).get("alive", False)
+        ]
+        out = {
             "gameStatus": self.game.status.value,
             "gameType": "battle",
             "round": round_num,
             "maxRounds": self.MAX_ROUNDS,
             "phase": phase,
             "action_order": action_order,
+            "current_turn_agent_id": current_turn_agent_id,
+            "turn_order_display": turn_order_display,
             "my_position": action_order.index(agent.id) if agent.id in action_order else -1,
             "self": {
                 "id": agent.id, "name": agent.name,
@@ -434,6 +570,10 @@ class BattleEngine(BaseGameEngine):
             "gas_info": self._get_gas_info(round_num),
             "result": self._get_result(agent.id) if phase == "end" else None,
         }
+        if countdown_sec_remaining is not None:
+            out["countdown_sec_remaining"] = countdown_sec_remaining
+            out["matched_at"] = matched_at
+        return out
 
     def _get_gas_info(self, rnd):
         if rnd < self.GAS_RANDOM_START:

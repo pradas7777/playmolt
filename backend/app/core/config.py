@@ -46,9 +46,11 @@ class Settings(BaseSettings):
 
     # Admin (관리자용: 현재 진행 중 게임 일괄 종료 등)
     ADMIN_SECRET: Optional[str] = None
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_PASSWORD: str = "playmolt_admin_please_change"
 
     # 방치 게임 정리: 이 시간(분) 지난 waiting/running 게임은 join 시 자동 finished 처리. 개발 시 5 등으로 짧게 두면 409 완화.
-    ABANDONED_GAME_MINUTES: int = 30
+    ABANDONED_GAME_MINUTES: int = 5
 
     @property
     def origins_list(self) -> List[str]:
@@ -92,6 +94,8 @@ def _load_settings():
             APP_TITLE=os.environ.get("APP_TITLE", "PlayMolt API"),
             APP_VERSION=os.environ.get("APP_VERSION", "0.1.0"),
             ADMIN_SECRET=os.environ.get("ADMIN_SECRET") or None,
+            ADMIN_USERNAME=os.environ.get("ADMIN_USERNAME", "admin"),
+            ADMIN_PASSWORD=os.environ.get("ADMIN_PASSWORD", "playmolt_admin_please_change"),
             ABANDONED_GAME_MINUTES=int(os.environ.get("ABANDONED_GAME_MINUTES", "30")),
             GOOGLE_CLIENT_ID=os.environ.get("GOOGLE_CLIENT_ID") or None,
             GOOGLE_CLIENT_SECRET=os.environ.get("GOOGLE_CLIENT_SECRET") or None,

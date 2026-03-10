@@ -4,7 +4,7 @@
 실행:
   python mafia/bot.py --name m1
   python mafia/bot.py --name m2
-  ... 6명까지
+  ... 5명까지
 """
 import argparse
 import random
@@ -15,28 +15,53 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.par
 
 from common.client import PlayMoltClient
 
+REASON_CODES = ("AMBIGUOUS", "TOO_SPECIFIC", "OFF_TONE", "ETC")
+FINAL_MIN = 40
+FINAL_MAX = 140
+
 
 def decide_hint(state: dict) -> str:
     """자신의 단어(secretWord)를 직접 말하지 않고 힌트 1문장."""
-    me = state.get("self", {})
-    word = me.get("secretWord", "")
     hints = [
-        f"이 단어와 관련된 것을 생각해보세요.",
-        f"일상에서 자주 접하는 것입니다.",
-        f"한 단어로 설명할 수 있습니다.",
+        "이 단어와 관련된 것을 생각해보세요.",
+        "일상에서 자주 접하는 것입니다.",
+        "한 단어로 설명할 수 있습니다.",
     ]
     return random.choice(hints)[:100]
 
 
-def decide_vote(state: dict) -> tuple[str, str]:
-    """참가자 중 자기 제외 랜덤 1명 지목 + 이유."""
+def decide_suspect(state: dict) -> tuple[str, str]:
+    """참가자 중 자기 제외 랜덤 1명 지목 + reason_code."""
     participants = state.get("participants", [])
     me_id = state.get("self", {}).get("id")
     others = [p for p in participants if p.get("id") != me_id]
     if not others:
-        return "", "이유 없음"
+        return "", "ETC"
     target = random.choice(others)
-    return target["id"], "힌트 패턴이 다르다고 판단했습니다."[:100]
+    reason = random.choice(REASON_CODES)
+    return target["id"], reason
+
+
+def decide_final(state: dict) -> str:
+    """최후 변론 40~140자."""
+    base = "저는 시민입니다. 제 힌트를 다시 생각해보시면 알 수 있을 겁니다. "
+    text = (base * 5)[:FINAL_MAX]
+    if len(text) < FINAL_MIN:
+        text = text.ljust(FINAL_MIN, ".")
+    return text
+
+
+def decide_vote(state: dict) -> str:
+    """참가자 중 자기 제외 랜덤 1명 지목. revote면 revote_candidates 중에서."""
+    participants = state.get("participants", [])
+    me_id = state.get("self", {}).get("id")
+    revote_candidates = state.get("revote_candidates", [])
+    if revote_candidates:
+        return random.choice(revote_candidates)
+    others = [p["id"] for p in participants if p.get("id") != me_id]
+    if not others:
+        return ""
+    return random.choice(others)
 
 
 def main():
@@ -69,17 +94,27 @@ def main():
         allowed = state.get("allowed_actions", [])
         self_submitted = state.get("self_submitted", True)
 
-        # 라운드가 끝나 다음 액션 단계가 왔을 때만, 그리고 아직 내가 제출하지 않았을 때만 액션
         if "hint" in allowed and not self_submitted:
             text = decide_hint(state)
             client.submit_action(game_id, {"type": "hint", "text": text})
             print(f"[{bot_name}] hint 제출 phase={phase} text={text[:30]}...")
             time.sleep(1.0)
-        elif "vote" in allowed and not self_submitted:
-            target_id, reason = decide_vote(state)
+        elif "suspect" in allowed and not self_submitted:
+            target_id, reason_code = decide_suspect(state)
             if target_id:
-                client.submit_action(game_id, {"type": "vote", "target_id": target_id, "reason": reason})
-                print(f"[{bot_name}] vote 제출 target={target_id[:8]}... reason={reason[:30]}...")
+                client.submit_action(game_id, {"type": "suspect", "target_id": target_id, "reason_code": reason_code})
+                print(f"[{bot_name}] suspect 제출 target={target_id[:8]}... reason={reason_code}")
+            time.sleep(1.0)
+        elif "final" in allowed and not self_submitted:
+            text = decide_final(state)
+            client.submit_action(game_id, {"type": "final", "text": text})
+            print(f"[{bot_name}] final 제출 len={len(text)}")
+            time.sleep(1.0)
+        elif "vote" in allowed and not self_submitted:
+            target_id = decide_vote(state)
+            if target_id:
+                client.submit_action(game_id, {"type": "vote", "target_id": target_id})
+                print(f"[{bot_name}] vote 제출 target={target_id[:8]}...")
             time.sleep(1.0)
         else:
             time.sleep(0.5)

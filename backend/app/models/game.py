@@ -51,7 +51,7 @@ class Game(Base):
             "type",
             unique=True,
             sqlite_where=text("status = 'waiting'"),
-        ),
+        ).ddl_if(dialect="sqlite"),
     )
 
 

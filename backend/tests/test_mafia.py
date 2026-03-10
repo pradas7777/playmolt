@@ -1,6 +1,6 @@
 """
 마피아(워드 울프) 엔진 통합 테스트.
-6명 봇 참가 → 힌트 제출 → 투표 → 결과까지 전체 루프 검증.
+5명 봇 참가 → 힌트 → suspect → final → 투표 → 결과까지 전체 루프 검증.
 """
 import os
 import threading
@@ -114,19 +114,42 @@ def _action(api_key: str, game_id: str, action: dict) -> dict:
     return r.json()
 
 
-def test_mafia_6_bots_full_flow():
-    """6명 참가 → 힌트 1라운드 → 투표 → 게임 종료·결과 확인"""
-    keys = [_create_bot(f"maf{i}@test.com", f"maf{i}") for i in range(6)]
-    game_id = _join_n_parallel(keys, "mafia", 6)
+def test_mafia_5_bots_full_flow():
+    """5명 참가 → hint → suspect → final → vote → 게임 종료·결과 확인"""
+    keys = [_create_bot(f"maf{i}@test.com", f"maf{i}") for i in range(5)]
+    game_id = _join_n_parallel(keys, "mafia", 5)
 
     state = _state(keys[0], game_id)
     assert state["gameStatus"] == "running"
     assert state["gameType"] == "mafia"
     assert state["phase"] == "hint"
 
-    # 힌트 제출 (6명)
+    # hint 제출 (5명)
     for key in keys:
         resp = _action(key, game_id, {"type": "hint", "text": "test hint"})
+        assert resp.get("success") is True, resp
+
+    state = _state(keys[0], game_id)
+    assert state["phase"] == "suspect"
+
+    # suspect 제출 (5명) - 각자 다른 사람 1명 지목
+    s0 = _state(keys[0], game_id)
+    participants = s0.get("participants", [])
+    for key in keys:
+        s = _state(key, game_id)
+        my_id = s["self"]["id"]
+        others = [p["id"] for p in participants if p["id"] != my_id]
+        target_id = others[0] if others else participants[0]["id"]
+        resp = _action(key, game_id, {"type": "suspect", "target_id": target_id, "reason_code": "AMBIGUOUS"})
+        assert resp.get("success") is True, resp
+
+    state = _state(keys[0], game_id)
+    assert state["phase"] == "final"
+
+    # final 제출 (5명) - 40~140자
+    final_text = "x" * 40
+    for key in keys:
+        resp = _action(key, game_id, {"type": "final", "text": final_text})
         assert resp.get("success") is True, resp
 
     state = _state(keys[0], game_id)
@@ -143,7 +166,7 @@ def test_mafia_6_bots_full_flow():
             tid = [p["id"] for p in s["participants"] if p["id"] != target_id][0]
         else:
             tid = target_id
-        resp = _action(key, game_id, {"type": "vote", "target_id": tid, "reason": "test"})
+        resp = _action(key, game_id, {"type": "vote", "target_id": tid})
         assert resp.get("success") is True, resp
 
     state = _state(keys[0], game_id)

@@ -1,8 +1,10 @@
 import uuid
 from datetime import datetime, timezone, timedelta
+import re
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from app.core.database import get_db
 from app.core.security import get_current_account
@@ -29,26 +31,86 @@ CHALLENGE_INSTRUCTION = (
 )
 
 
-@router.post("/register", response_model=AgentRegisterResponse, status_code=status.HTTP_201_CREATED)
+def _resolve_unique_agent_name(db: Session, requested_name: str, exclude_agent_id: str | None = None) -> str:
+    """Ensure global uniqueness of agent names by auto-numbering duplicates."""
+    base = (requested_name or "").strip()
+    if not base:
+        return requested_name
+
+    q = db.query(Agent.name)
+    if exclude_agent_id:
+        q = q.filter(Agent.id != exclude_agent_id)
+    existing_names = {
+        name for (name,) in q.filter(
+            or_(Agent.name == base, Agent.name.like(f"{base}-%"))
+        ).all()
+    }
+    if base not in existing_names:
+        return base
+
+    pattern = re.compile(rf"^{re.escape(base)}-(\d+)$")
+    max_suffix = 1
+    for name in existing_names:
+        m = pattern.match(name)
+        if not m:
+            continue
+        try:
+            max_suffix = max(max_suffix, int(m.group(1)))
+        except ValueError:
+            continue
+
+    suffix = max_suffix + 1
+    while True:
+        suffix_text = f"-{suffix}"
+        trimmed_base = base[:max(1, 30 - len(suffix_text))]
+        candidate = f"{trimmed_base}{suffix_text}"
+        if candidate not in existing_names:
+            return candidate
+        suffix += 1
+
+
+@router.post("/register", response_model=AgentRegisterResponse)
 def register_agent(
     body: AgentRegisterRequest,
+    response: Response,
     account: ApiKey = Depends(get_current_account),
     db: Session = Depends(get_db),
 ):
     """
-    X-API-Key 인증 → 에이전트 등록 (status=pending).
+    X-Pairing-Code 인증 → 에이전트 등록 (status=pending).
     응답의 challenge로 POST /api/agents/challenge 호출해 통과하면 게임 참가 가능.
+    이미 등록된 에이전트가 있으면 name/persona만 업데이트하고 200 반환.
     """
     existing = db.query(Agent).filter(Agent.api_key_id == account.id).first()
     if existing:
-        raise HTTPException(status_code=409, detail="이미 등록된 에이전트가 있습니다")
+        # 같은 Pairing Code로 재등록 요청 시 name/persona 변경 허용
+        existing.name = _resolve_unique_agent_name(db, body.name, exclude_agent_id=existing.id)
+        if body.persona_prompt is not None:
+            existing.persona_prompt = body.persona_prompt
+        db.commit()
+        db.refresh(existing)
+        response.status_code = status.HTTP_200_OK
+        token = str(uuid.uuid4())
+        return AgentRegisterResponse(
+            id=existing.id,
+            name=existing.name,
+            persona_prompt=existing.persona_prompt,
+            total_points=existing.total_points,
+            status=existing.status.value,
+            created_at=existing.created_at,
+            challenge=ChallengeInfo(
+                token=token,
+                instruction=CHALLENGE_INSTRUCTION.format(token=token),
+                expires_in_seconds=CHALLENGE_EXPIRES_SECONDS,
+            ),
+        )
 
     token = str(uuid.uuid4())
     expires_at = datetime.now(timezone.utc) + timedelta(seconds=CHALLENGE_EXPIRES_SECONDS)
     agent = Agent(
         user_id=account.user_id,
         api_key_id=account.id,
-        name=body.name,
+        name=_resolve_unique_agent_name(db, body.name),
         persona_prompt=body.persona_prompt,
         status=AgentStatus.pending,
         challenge_token=token,
@@ -58,6 +120,7 @@ def register_agent(
     db.commit()
     db.refresh(agent)
 
+    response.status_code = status.HTTP_201_CREATED
     return AgentRegisterResponse(
         id=agent.id,
         name=agent.name,
@@ -146,6 +209,44 @@ def _compute_agent_stats(db: Session, agent_id: str) -> tuple[dict[str, GameType
     return game_stats, total_stats
 
 
+@router.get("/me/challenge")
+def get_my_challenge(
+    account: ApiKey = Depends(get_current_account),
+    db: Session = Depends(get_db),
+):
+    """
+    현재 에이전트의 챌린지 정보 조회.
+    - active면 204 No Content
+    - pending이면 200 + ChallengeInfo (token/instruction/만료까지 남은 시간)
+    """
+    agent = db.query(Agent).filter(Agent.api_key_id == account.id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="등록된 에이전트가 없습니다. POST /api/agents/register로 먼저 등록하세요.")
+
+    if agent.status != AgentStatus.pending:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    now = datetime.now(timezone.utc)
+    token = agent.challenge_token
+    expires_at = agent.challenge_expires_at
+    if expires_at is not None and getattr(expires_at, "tzinfo", None) is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if not token or expires_at is None or expires_at < now:
+        token = str(uuid.uuid4())
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=CHALLENGE_EXPIRES_SECONDS)
+        agent.challenge_token = token
+        agent.challenge_expires_at = expires_at
+        db.commit()
+
+    remaining = int(max(0, (expires_at - now).total_seconds()))
+    return ChallengeInfo(
+        token=token,
+        instruction=CHALLENGE_INSTRUCTION.format(token=token),
+        expires_in_seconds=remaining,
+    )
+
+
 @router.get("/me", response_model=AgentMeResponse)
 def get_my_agent(
     account: ApiKey = Depends(get_current_account),
@@ -179,7 +280,7 @@ def update_agent(
         raise HTTPException(status_code=404, detail="등록된 에이전트가 없습니다")
 
     if body.name:
-        agent.name = body.name
+        agent.name = _resolve_unique_agent_name(db, body.name, exclude_agent_id=agent.id)
     if body.persona_prompt is not None:
         agent.persona_prompt = body.persona_prompt
 
@@ -274,3 +375,27 @@ def get_leaderboard(
         )
         for idx, a in enumerate(agents)
     ]
+
+
+@router.get("/{agent_id}/public", response_model=AgentMeResponse)
+def get_agent_public(
+    agent_id: str,
+    db: Session = Depends(get_db),
+):
+    """Public agent profile for spectator-style UIs."""
+    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found.")
+
+    game_stats, total_stats = _compute_agent_stats(db, agent.id)
+    return AgentMeResponse(
+        id=agent.id,
+        name=agent.name,
+        persona_prompt=agent.persona_prompt,
+        total_points=agent.total_points,
+        status=agent.status.value,
+        created_at=agent.created_at,
+        game_stats=game_stats,
+        total_stats=total_stats,
+    )
+

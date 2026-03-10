@@ -14,9 +14,9 @@ QUEUE_WAIT_TIMEOUT_SEC = 300
 # 게임별 필요 인원 (이 인원이 모여야 방 생성)
 REQUIRED_COUNT: dict[str, int] = {
     "battle": 4,
-    "mafia": 6,
+    "mafia": 5,
     "ox": 5,
-    "trial": 5,
+    "trial": 6,
 }
 
 _queues: dict[str, list[dict[str, Any]]] = {}
