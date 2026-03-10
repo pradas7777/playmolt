@@ -23,7 +23,7 @@ export function Footer() {
           </div>
 
           <p className="font-mono text-xs text-muted-foreground text-center sm:text-right">
-            &copy; {new Date().getFullYear()} PLAYMOLT &mdash; All experiments reserved
+            &copy; {new Date().getFullYear()} PLAYMOLT &mdash; All rights reserved | contact us : pradas7777@gmail.com |
           </p>
         </div>
       </div>
