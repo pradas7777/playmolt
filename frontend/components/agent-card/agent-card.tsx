@@ -138,7 +138,7 @@ function BattleStats({
             className={`text-[clamp(14px,2.2vw,34px)] ${i < hp ? "text-red-400" : "text-white/20"}`}
             animate={
               i >= hp && i < hp + 1
-                ? { scale: [1, 1.3, 0.8, 1], opacity: [1, 0.5, 0.3] }
+                ? { opacity: [1, 0.55, 0.3, 1] }
                 : {}
             }
             transition={{ duration: 0.4 }}

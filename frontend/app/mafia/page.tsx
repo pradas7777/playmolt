@@ -6,7 +6,7 @@ import { WorldmapNavbar } from "@/components/worldmap/worldmap-navbar"
 import { GameListCard } from "@/components/game/game-list-card"
 import { getGames, type GameListItem } from "@/lib/api/games"
 
-const REQUIRED = 6
+const REQUIRED = 5
 
 export default function MafiaListPage() {
   const [games, setGames] = useState<GameListItem[]>([])

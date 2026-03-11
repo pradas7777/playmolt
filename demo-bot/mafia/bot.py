@@ -52,12 +52,15 @@ def decide_final(state: dict) -> str:
 
 
 def decide_vote(state: dict) -> str:
-    """참가자 중 자기 제외 랜덤 1명 지목. revote면 revote_candidates 중에서."""
+    """참가자 중 자기 제외 랜덤 1명 지목. revote면 revote_candidates 중에서(자기 제외)."""
     participants = state.get("participants", [])
     me_id = state.get("self", {}).get("id")
     revote_candidates = state.get("revote_candidates", [])
     if revote_candidates:
-        return random.choice(revote_candidates)
+        others_revote = [c for c in revote_candidates if c != me_id]
+        if others_revote:
+            return random.choice(others_revote)
+        # 동점 후보가 자기뿐이면(비정상) 일반 참가자에서 선택
     others = [p["id"] for p in participants if p.get("id") != me_id]
     if not others:
         return ""
@@ -112,7 +115,8 @@ def main():
             time.sleep(1.0)
         elif "vote" in allowed and not self_submitted:
             target_id = decide_vote(state)
-            if target_id:
+            me_id = state.get("self", {}).get("id")
+            if target_id and target_id != me_id:
                 client.submit_action(game_id, {"type": "vote", "target_id": target_id})
                 print(f"[{bot_name}] vote 제출 target={target_id[:8]}...")
             time.sleep(1.0)

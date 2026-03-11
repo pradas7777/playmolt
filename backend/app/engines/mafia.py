@@ -144,14 +144,22 @@ class MafiaEngine(BaseGameEngine):
 
         pairs = _load_word_pairs()
         pair = random.choice(pairs)
-        common_word = (pair.get("common_word") or "").strip()
-        odd_word = (pair.get("odd_word") or "").strip()
-        if not _is_valid_utf8_word(common_word) or not _is_valid_utf8_word(odd_word):
+        # 파일 형식은 [citizen_word, wolf_word] 혹은 [common_word, odd_word] 한 쌍이지만,
+        # 실제 게임에서는 두 단어 중 하나를 시민 단어, 나머지를 늑대 단어로 랜덤 배치한다.
+        w1 = (pair.get("common_word") or pair.get("citizen_word") or "").strip()
+        w2 = (pair.get("odd_word") or pair.get("wolf_word") or "").strip()
+        if not _is_valid_utf8_word(w1) or not _is_valid_utf8_word(w2):
             fallback = json.loads(_DEFAULT_WORD_PAIRS_JSON)
             pair = fallback[0]
-            common_word = pair.get("citizen_word", pair.get("common_word", ""))
-            odd_word = pair.get("wolf_word", pair.get("odd_word", ""))
+            w1 = pair.get("citizen_word", pair.get("common_word", ""))
+            w2 = pair.get("wolf_word", pair.get("odd_word", ""))
             _logger.warning("마피아 단어 검증 실패, 폴백 단어쌍 사용")
+
+        # w1, w2 중 하나를 시민(공통 단어), 나머지를 늑대(이상한 단어)로 랜덤 배치
+        if random.random() < 0.5:
+            common_word, odd_word = w1, w2
+        else:
+            common_word, odd_word = w2, w1
         agent_ids = [p.agent_id for p in participants]
         random.shuffle(agent_ids)
         wolf_count = self.game.config.get("wolf_count", 1)
@@ -223,45 +231,65 @@ class MafiaEngine(BaseGameEngine):
             if agent.id in ms.get("pending_actions", {}):
                 return {"success": False, "error": "ALREADY_ACTED"}
 
+            # 잘못된 액션도 default_action으로 기록해 게임이 멈추지 않도록 함 (배틀과 동일)
+            validation_error: dict | None = None
+
             if phase == "hint":
                 if action.get("type") != "hint":
-                    return {"success": False, "error": "HINT_PHASE_REQUIRES_HINT"}
-                text = (action.get("text") or "").strip()[:MAX_HINT_LEN]
-                ms.setdefault("pending_actions", {})[agent.id] = {"type": "hint", "text": text}
+                    validation_error = {"success": False, "error": "HINT_PHASE_REQUIRES_HINT", "expected_action": "hint", "hint": '{"type":"hint","text":"..."}'}
+                    ms.setdefault("pending_actions", {})[agent.id] = self.default_action(agent.id)
+                else:
+                    text = (action.get("text") or "").strip()[:MAX_HINT_LEN]
+                    ms.setdefault("pending_actions", {})[agent.id] = {"type": "hint", "text": text}
             elif phase == "suspect":
                 if action.get("type") != "suspect":
-                    return {"success": False, "error": "SUSPECT_PHASE_REQUIRES_SUSPECT"}
-                target_id = action.get("target_id")
-                if target_id == agent.id:
-                    return {"success": False, "error": "CANNOT_SUSPECT_SELF"}
-                if target_id not in agents:
-                    return {"success": False, "error": "INVALID_TARGET"}
-                reason_code = (action.get("reason_code") or "ETC").upper()
-                if reason_code not in SUSPECT_REASON_CODES:
-                    reason_code = "ETC"
-                ms.setdefault("pending_actions", {})[agent.id] = {"type": "suspect", "target_id": target_id, "reason_code": reason_code}
+                    validation_error = {"success": False, "error": "SUSPECT_PHASE_REQUIRES_SUSPECT", "expected_action": "suspect", "hint": '{"type":"suspect","target_id":"...","reason_code":"ETC"}'}
+                    ms.setdefault("pending_actions", {})[agent.id] = self.default_action(agent.id)
+                else:
+                    target_id = action.get("target_id")
+                    if target_id == agent.id or target_id not in agents:
+                        validation_error = {"success": False, "error": "INVALID_TARGET" if target_id != agent.id else "CANNOT_SUSPECT_SELF", "expected_action": "suspect", "hint": "target_id must be another agent id"}
+                        ms.setdefault("pending_actions", {})[agent.id] = self.default_action(agent.id)
+                    else:
+                        reason_code = (action.get("reason_code") or "ETC").upper()
+                        if reason_code not in SUSPECT_REASON_CODES:
+                            reason_code = "ETC"
+                        ms.setdefault("pending_actions", {})[agent.id] = {"type": "suspect", "target_id": target_id, "reason_code": reason_code}
             elif phase == "final":
                 if action.get("type") != "final":
-                    return {"success": False, "error": "FINAL_PHASE_REQUIRES_FINAL"}
-                text = (action.get("text") or "").strip()
-                if len(text) < MAX_FINAL_MIN or len(text) > MAX_FINAL_MAX:
-                    return {"success": False, "error": f"FINAL_TEXT_LENGTH_{MAX_FINAL_MIN}_TO_{MAX_FINAL_MAX}"}
-                ms.setdefault("pending_actions", {})[agent.id] = {"type": "final", "text": text}
+                    validation_error = {"success": False, "error": "FINAL_PHASE_REQUIRES_FINAL", "expected_action": "final", "hint": f'{{"type":"final","text":"..."}} (len {MAX_FINAL_MIN}~{MAX_FINAL_MAX})'}
+                    ms.setdefault("pending_actions", {})[agent.id] = self.default_action(agent.id)
+                else:
+                    text = (action.get("text") or "").strip()
+                    if len(text) < MAX_FINAL_MIN or len(text) > MAX_FINAL_MAX:
+                        validation_error = {"success": False, "error": f"FINAL_TEXT_LENGTH_{MAX_FINAL_MIN}_TO_{MAX_FINAL_MAX}", "expected_action": "final", "hint": f"text length {MAX_FINAL_MIN}~{MAX_FINAL_MAX}"}
+                        ms.setdefault("pending_actions", {})[agent.id] = self.default_action(agent.id)
+                    else:
+                        ms.setdefault("pending_actions", {})[agent.id] = {"type": "final", "text": text}
             elif phase in ("vote", "revote"):
                 if action.get("type") != "vote":
-                    return {"success": False, "error": "VOTE_PHASE_REQUIRES_VOTE"}
-                target_id = action.get("target_id")
-                if target_id == agent.id:
-                    return {"success": False, "error": "CANNOT_VOTE_SELF"}
-                if phase == "revote":
-                    candidates = ms.get("revote_candidates") or []
-                    if target_id not in candidates:
-                        return {"success": False, "error": "TARGET_MUST_BE_REVOTE_CANDIDATE"}
-                elif target_id not in agents:
-                    return {"success": False, "error": "INVALID_TARGET"}
-                ms.setdefault("pending_actions", {})[agent.id] = {"type": "vote", "target_id": target_id}
+                    validation_error = {"success": False, "error": "VOTE_PHASE_REQUIRES_VOTE", "expected_action": "vote", "hint": '{"type":"vote","target_id":"..."}'}
+                    ms.setdefault("pending_actions", {})[agent.id] = self.default_action(agent.id)
+                else:
+                    target_id = action.get("target_id")
+                    if target_id == agent.id:
+                        validation_error = {"success": False, "error": "CANNOT_VOTE_SELF", "expected_action": "vote", "hint": "target_id must not be self"}
+                        ms.setdefault("pending_actions", {})[agent.id] = self.default_action(agent.id)
+                    elif phase == "revote":
+                        candidates = ms.get("revote_candidates") or []
+                        if target_id not in candidates:
+                            validation_error = {"success": False, "error": "TARGET_MUST_BE_REVOTE_CANDIDATE", "expected_action": "vote", "hint": "target_id must be one of revote_candidates"}
+                            ms.setdefault("pending_actions", {})[agent.id] = self.default_action(agent.id)
+                        else:
+                            ms.setdefault("pending_actions", {})[agent.id] = {"type": "vote", "target_id": target_id}
+                    elif target_id not in agents:
+                        validation_error = {"success": False, "error": "INVALID_TARGET", "expected_action": "vote", "hint": "target_id must be an agent id in game"}
+                        ms.setdefault("pending_actions", {})[agent.id] = self.default_action(agent.id)
+                    else:
+                        ms.setdefault("pending_actions", {})[agent.id] = {"type": "vote", "target_id": target_id}
             else:
-                return {"success": False, "error": f"NO_ACTION_IN_PHASE_{phase}"}
+                validation_error = {"success": False, "error": f"NO_ACTION_IN_PHASE_{phase}"}
+                ms.setdefault("pending_actions", {})[agent.id] = self.default_action(agent.id)
 
             self._commit(ms)
             self._broadcast_mafia_state()
@@ -270,6 +298,8 @@ class MafiaEngine(BaseGameEngine):
             if len(pending) >= len(agents):
                 self._advance_phase()
 
+            if validation_error is not None:
+                return validation_error
         return {"success": True, "message": "제출되었습니다"}
 
     def _advance_phase(self):
@@ -349,6 +379,11 @@ class MafiaEngine(BaseGameEngine):
             max_votes = max(count.values())
             candidates = [tid for tid, c in count.items() if c == max_votes]
 
+            # 5명 전원 동률(각 1표) -> 재투표 없이 늑대 승리
+            if len(candidates) == len(agents):
+                self._finish_vote(ms, vote_detail, None, None, "WOLF")
+                return
+
             if len(candidates) == 1:
                 eliminated_id = candidates[0]
                 eliminated_role = agents.get(eliminated_id, {}).get("role", "CITIZEN")
@@ -384,7 +419,7 @@ class MafiaEngine(BaseGameEngine):
 
         self._commit(ms)
 
-    def _finish_vote(self, ms: dict, vote_detail: list, eliminated_id: str, eliminated_role: str, winner: str):
+    def _finish_vote(self, ms: dict, vote_detail: list, eliminated_id: str | None, eliminated_role: str | None, winner: str):
         ms["phase"] = "result"
         ms["eliminated_id"] = eliminated_id
         ms["eliminated_role"] = eliminated_role

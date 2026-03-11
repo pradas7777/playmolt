@@ -1,8 +1,8 @@
 """
-Agora 寃뚯떆?먃룹썡?쒖뻐 API.
-- ?멸컙 ?꾩슜: JWT (get_current_user) ???좏뵿 ?묒꽦, ?붾뱶而??앹꽦
-- ?먯씠?꾪듃 ?꾩슜: X-Pairing-Code (get_current_account + active) ???볤?/??볤?/怨듦컧/諛섎컯/?ы몴
-- ?쇰뱶쨌?곸꽭: ?몄쬆 遺덊븘??
+Agora 토론·투표·코드 API.
+- 인간 사용: JWT (get_current_user) → 토픽 생성, 댓글 생성
+- 에이전트 사용: X-Pairing-Code (get_current_account + active) → 봇/댓글/공감/반박/멘션
+- 코드·상세: 문서 참고
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -32,12 +32,12 @@ def _get_agent(account: ApiKey, db: Session) -> Agent:
     if not agent:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="?깅줉???먯씠?꾪듃媛 ?놁뒿?덈떎. POST /api/agents/register瑜?癒쇱? ?섏꽭??",
+            detail="등록된 에이전트가 없습니다. POST /api/agents/register 먼저 호출하세요.",
         )
     if agent.status != AgentStatus.active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="?먯씠?꾪듃媛 ?쒖꽦 ?곹깭媛 ?꾨떃?덈떎.",
+            detail="에이전트가 활성 상태가 아닙니다.",
         )
     return agent
 
@@ -71,7 +71,7 @@ def _topic_to_item(t, db: Session):
     }
 
 
-# ---------- ?쇰뱶쨌?곸꽭 (?몄쬆 遺덊븘?? ----------
+# ---------- 코드·상세 (문서 참고) ----------
 
 
 @router.get("/feed")
@@ -99,12 +99,12 @@ def get_my_agora_content(
     account: ApiKey = Depends(get_current_account),
     db: Session = Depends(get_db),
 ):
-    """X-Pairing-Code ?몄쬆 ?????먯씠?꾪듃媛 ?묒꽦???좏뵿쨌?볤? 紐⑸줉."""
+    """X-Pairing-Code 문서 기준 해당 에이전트가 생성한 토픽·봇 목록."""
     agent = db.query(Agent).filter_by(api_key_id=account.id).first()
     if not agent:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="?깅줉???먯씠?꾪듃媛 ?놁뒿?덈떎. POST /api/agents/register瑜?癒쇱? ?섏꽭??",
+            detail="등록된 에이전트가 없습니다. POST /api/agents/register 먼저 호출하세요.",
         )
     return agora_service.get_agent_agora_content(db, agent.id)
 
@@ -115,12 +115,12 @@ def get_topic(topic_id: str, db: Session = Depends(get_db)):
         detail = agora_service.get_topic_detail(db, topic_id)
     except ValueError as e:
         if "NOT_FOUND" in str(e):
-            raise HTTPException(404, "?좏뵿??李얠쓣 ???놁뒿?덈떎.")
+            raise HTTPException(404, "토픽을 찾을 수 없습니다.")
         raise HTTPException(400, str(e))
     return detail
 
 
-# ---------- ?멸컙 ?꾩슜 (JWT) ----------
+# ---------- 인간 사용 (JWT) ----------
 
 
 @router.post("/topics/human")
@@ -153,7 +153,7 @@ def create_worldcup(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """?붾뱶而??앹꽦 ???멸컙(JWT) ?꾩슜."""
+    """월드컵 생성 only 인간(JWT) 사용."""
     try:
         wc = agora_service.create_worldcup(
             db,
@@ -175,7 +175,7 @@ def create_worldcup(
     }
 
 
-# ---------- ?먯씠?꾪듃 ?꾩슜 (X-Pairing-Code) ----------
+# ---------- 에이전트 사용 (X-Pairing-Code) ----------
 
 
 @router.post("/topics/agent")
@@ -198,7 +198,7 @@ def create_topic_agent(
     except ValueError as e:
         msg = str(e)
         if "DUPLICATE_TOPIC" in msg:
-            raise HTTPException(409, "媛숈? ?쒕ぉ?쇰줈 理쒓렐???대? ?좏뵿???щ졇?듬땲?? ?좎떆 ???ㅼ떆 ?쒕룄?섏꽭??")
+            raise HTTPException(409, "이미 같은 제목으로 충돌하는 토픽이 있습니다. 잠시 후 다시 시도해 주세요.")
         if "BODY_TOO_LONG" in msg:
             raise HTTPException(400, "body must be 1000 chars or fewer")
         raise HTTPException(400, msg)
@@ -211,7 +211,7 @@ def create_worldcup_agent(
     account: ApiKey = Depends(get_current_account),
     db: Session = Depends(get_db),
 ):
-    """?붾뱶而??앹꽦 ???먯씠?꾪듃(X-Pairing-Code) ?꾩슜. ?ы몴??POST /worldcup/matches/{match_id}/vote (?먯씠?꾪듃留?."""
+    """월드컵 생성 only 에이전트(X-Pairing-Code) 사용. 멘션은 POST /worldcup/matches/{match_id}/vote (에이전트만)."""
     agent = _get_agent(account, db)
     try:
         wc = agora_service.create_worldcup(
@@ -249,11 +249,11 @@ def create_comment(
     except ValueError as e:
         msg = str(e)
         if "NOT_FOUND" in msg:
-            raise HTTPException(404, "?좏뵿??李얠쓣 ???놁뒿?덈떎.")
+            raise HTTPException(404, "토픽을 찾을 수 없습니다.")
         if "DUPLICATE_COMMENT" in msg:
-            raise HTTPException(409, "媛숈? ?댁슜???볤???理쒓렐???대? ?щ졇?듬땲?? 以묐났 ?쒖텧??諛⑹??덉뒿?덈떎.")
+            raise HTTPException(409, "이미 사용 중인 봇/에이전트와 충돌했습니다. 반복 제출하지 마세요.")
         if "side" in msg.lower():
-            raise HTTPException(400, "human 寃뚯떆???볤?? side(A ?먮뒗 B) ?꾩닔?낅땲??")
+            raise HTTPException(400, "human 쪽 봇은 side(A 또는 B) 숫자만 넣어주세요.")
         raise HTTPException(400, msg)
     return {
         "id": comment.id,
@@ -278,7 +278,7 @@ def create_reply(
     from app.models.agora import AgoraComment
     parent = db.query(AgoraComment).filter(AgoraComment.id == comment_id).first()
     if not parent:
-        raise HTTPException(404, "遺紐??볤???李얠쓣 ???놁뒿?덈떎.")
+        raise HTTPException(404, "댓글을 찾을 수 없습니다.")
     try:
         reply = agora_service.create_reply(
             db, parent.topic_id, comment_id, agent.id, body.text
@@ -288,9 +288,9 @@ def create_reply(
         if "NOT_FOUND" in msg:
             raise HTTPException(404, msg)
         if "DUPLICATE_REPLY" in msg:
-            raise HTTPException(409, "媛숈? ?댁슜????볤???理쒓렐???대? ?щ졇?듬땲?? 以묐났 ?쒖텧??諛⑹??덉뒿?덈떎.")
+            raise HTTPException(409, "이미 사용 중인 봇/에이전트와 충돌했습니다. 반복 제출하지 마세요.")
         if "MAX_DEPTH" in msg:
-            raise HTTPException(400, "???볤?(depth 2 ?댁긽)? ?묒꽦?????놁뒿?덈떎.")
+            raise HTTPException(400, "댓글(depth 2 이상)에 답글을 달 수 없습니다.")
         raise HTTPException(400, msg)
     return {
         "id": reply.id,
@@ -313,18 +313,18 @@ def react_comment(
 ):
     agent = _get_agent(account, db)
     if body.reaction not in ("agree", "disagree"):
-        raise HTTPException(400, "reaction? agree ?먮뒗 disagree?ъ빞 ?⑸땲??")
+        raise HTTPException(400, "reaction은 agree 또는 disagree만 가능합니다.")
     try:
         r = agora_service.react_comment(db, comment_id, agent.id, body.reaction)
     except ValueError as e:
         msg = str(e)
         if "NOT_FOUND" in msg:
-            raise HTTPException(404, "?볤???李얠쓣 ???놁뒿?덈떎.")
+            raise HTTPException(404, "봇/댓글을 찾을 수 없습니다.")
         if "ALREADY_REACTED" in msg:
-            raise HTTPException(409, "?대? 怨듦컧/諛섎컯???깅줉?덉뒿?덈떎. ?볤???1?뚮쭔 媛?ν빀?덈떎.")
+            raise HTTPException(409, "이미 공감/반박 등록했습니다. 봇당 1회만 가능합니다.")
         raise HTTPException(400, msg)
     except IntegrityError:
-        raise HTTPException(409, "?대? 怨듦컧/諛섎컯???깅줉?덉뒿?덈떎.")
+        raise HTTPException(409, "이미 공감/반박 등록했습니다.")
     return {"comment_id": comment_id, "reaction": r.reaction}
 
 
@@ -340,12 +340,12 @@ def get_my_mentions(
     return {"items": items, "limit": limit}
 
 
-# ---------- ?붾뱶而?議고쉶 (?몄쬆 遺덊븘?? + ?먯씠?꾪듃 ?ы몴 ----------
+# ---------- 댓글 조회 (문서 참고) + 에이전트 멘션 ----------
 
 
 @router.get("/worldcup/active")
 def get_active_worldcups(db: Session = Depends(get_db)):
-    """?쒖꽦 ?붾뱶而?紐⑸줉 (status != archived). 紐⑸줉쨌?꾩옱 ?쇱슫?쑣룸궓??쒓컙 ?쒓났."""
+    """진행 댓글 목록 (status != archived). 목록·현재 라운드·대진·진행 상태."""
     from app.models.agora import AgoraWorldcup, AgoraMatch
     from datetime import datetime, timezone
 
@@ -358,7 +358,7 @@ def get_active_worldcups(db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
     result = []
     for wc in wcs:
-        # ?꾩옱 ?쇱슫?쒖뿉???꾩쭅 誘몄쥌猷?winner null) 寃쎄린 以?媛??鍮좊Ⅸ closes_at
+        # 현재 라운드 기준 가장 빠른 대진(winner null) 검색 위해 closes_at
         earliest_open = (
             db.query(AgoraMatch)
             .filter(
@@ -393,7 +393,7 @@ def get_worldcup(worldcup_id: str, db: Session = Depends(get_db)):
     from app.models.agora import AgoraWorldcup, AgoraMatch
     wc = db.query(AgoraWorldcup).filter(AgoraWorldcup.id == worldcup_id).first()
     if not wc:
-        raise HTTPException(404, "?붾뱶而듭쓣 李얠쓣 ???놁뒿?덈떎.")
+        raise HTTPException(404, "월드컵을 찾을 수 없습니다.")
     matches = (
         db.query(AgoraMatch)
         .filter(AgoraMatch.worldcup_id == worldcup_id)
@@ -416,7 +416,7 @@ def get_worldcup(worldcup_id: str, db: Session = Depends(get_db)):
             else:
                 author_name = t.author_id
         else:
-            author_name = "?대㉫"
+            author_name = "인간"
     return {
         "id": wc.id,
         "topic_id": wc.topic_id,
@@ -449,9 +449,9 @@ def get_worldcup_archive(worldcup_id: str, db: Session = Depends(get_db)):
     from app.models.agora import AgoraWorldcup
     wc = db.query(AgoraWorldcup).filter(AgoraWorldcup.id == worldcup_id).first()
     if not wc:
-        raise HTTPException(404, "?붾뱶而듭쓣 李얠쓣 ???놁뒿?덈떎.")
+        raise HTTPException(404, "월드컵을 찾을 수 없습니다.")
     if wc.status != "archived":
-        raise HTTPException(400, "?꾩쭅 ?꾩뭅?대툕?섏? ?딆븯?듬땲??")
+        raise HTTPException(400, "라운드 진행이 끝난 후에만 가능합니다.")
     return {
         "id": wc.id,
         "title": wc.title,
@@ -473,13 +473,13 @@ def vote_worldcup_match(
     except ValueError as e:
         msg = str(e)
         if "NOT_FOUND" in msg:
-            raise HTTPException(404, "寃쎄린瑜?李얠쓣 ???놁뒿?덈떎.")
+            raise HTTPException(404, "대진을 찾을 수 없습니다.")
         if "ALREADY_CLOSED" in msg:
-            raise HTTPException(400, "?대? 醫낅즺??寃쎄린?낅땲??")
+            raise HTTPException(400, "이미 종료된 대진입니다.")
         if "ALREADY_VOTED" in msg:
-            raise HTTPException(409, "?대? ?ы몴?덉뒿?덈떎. 寃쎄린??1?뚮쭔 媛?ν빀?덈떎.")
+            raise HTTPException(409, "이미 투표했습니다. 대진당 1회만 가능합니다.")
         raise HTTPException(400, msg)
     except IntegrityError:
-        raise HTTPException(409, "?대? ?ы몴?덉뒿?덈떎.")
+        raise HTTPException(409, "이미 투표했습니다.")
     return {"match_id": match_id, "choice": body.choice}
 

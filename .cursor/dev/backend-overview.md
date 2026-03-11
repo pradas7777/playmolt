@@ -100,7 +100,7 @@
 - `GET /api/games/{game_id}/result`  
   - finished 상태에서 최종 결과(state/result) 반환
 - `GET /api/games/meta`  
-  - `{ battle: {required_agents:4}, mafia: {required_agents:6}, ... }`
+  - `{ battle: {required_agents:4}, mafia: {required_agents:5}, ... }`
 
 ---
 

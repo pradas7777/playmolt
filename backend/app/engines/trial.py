@@ -287,6 +287,9 @@ class TrialEngine(BaseGameEngine):
             # --- argument_1: 검사/변호만 arg1, evidence_key 검증 ---
             if phase == PHASE_ARG1:
                 if role not in ("PROSECUTOR", "DEFENSE"):
+                    ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
+                    self._commit(ts)
+                    self._broadcast_trial_state()
                     return {"success": True, "message": "NOT_ACTOR_THIS_PHASE"}
                 if atype != "arg1":
                     return {"success": False, "error": "ARG1_REQUIRED", "expected_action": "arg1", "hint": "{\"type\": \"arg1\", \"evidence_key\": \"...\", \"claim\": \"...\"}"}
@@ -311,6 +314,9 @@ class TrialEngine(BaseGameEngine):
             # --- jury_interim: 배심원만 jury_interim, reason/question 필수 ---
             if phase == PHASE_JURY_INTERIM:
                 if role != "JUROR":
+                    ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
+                    self._commit(ts)
+                    self._broadcast_trial_state()
                     return {"success": True, "message": "NOT_ACTOR_THIS_PHASE"}
                 if atype != "jury_interim":
                     return {"success": False, "error": "JURY_INTERIM_REQUIRED", "expected_action": "jury_interim", "hint": "verdict, reason, question required."}
@@ -329,6 +335,9 @@ class TrialEngine(BaseGameEngine):
             # --- judge_expand: 판사만, 스키마 검증(리스트 길이 1) ---
             if phase == PHASE_JUDGE_EXPAND:
                 if role != "JUDGE":
+                    ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
+                    self._commit(ts)
+                    self._broadcast_trial_state()
                     return {"success": True, "message": "NOT_ACTOR_THIS_PHASE"}
                 if atype != "judge_expand":
                     return {"success": False, "error": "JUDGE_EXPAND_REQUIRED", "expected_action": "judge_expand", "hint": "question_summary, added_fact, new_evidence_for[1], new_evidence_against[1]"}
@@ -367,6 +376,9 @@ class TrialEngine(BaseGameEngine):
             # --- argument_2: 검사/변호만 arg2, evidence_key는 expansion 신규 증거 중 하나 ---
             if phase == PHASE_ARG2:
                 if role not in ("PROSECUTOR", "DEFENSE"):
+                    ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
+                    self._commit(ts)
+                    self._broadcast_trial_state()
                     return {"success": True, "message": "NOT_ACTOR_THIS_PHASE"}
                 if atype != "arg2":
                     return {"success": False, "error": "ARG2_REQUIRED", "expected_action": "arg2", "hint": "{\"type\": \"arg2\", \"evidence_key\": \"<expansion에서 1개>\", \"claim\": \"...\"}"}
@@ -388,6 +400,9 @@ class TrialEngine(BaseGameEngine):
             # --- jury_final: 배심원만 jury_final, reason 필수 ---
             if phase == PHASE_JURY_FINAL:
                 if role != "JUROR":
+                    ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
+                    self._commit(ts)
+                    self._broadcast_trial_state()
                     return {"success": True, "message": "NOT_ACTOR_THIS_PHASE"}
                 if atype != "jury_final":
                     return {"success": False, "error": "JURY_FINAL_REQUIRED", "expected_action": "jury_final", "hint": "verdict, reason required."}

@@ -1,9 +1,8 @@
 """
-Agora 泥댄겕由ъ뒪???뚯뒪??
-- ?멸컙 ?좏뵿 7??/ ?먯씠?꾪듃 ?좏뵿 48?쒓컙
-- ?멸컙 ?볤? 遺덇?, ?먯씠?꾪듃 ?볤?쨌??볤?쨌怨듦컧쨌my-mentions
-- ?붾뱶而??앹꽦쨌?ы몴쨌寃쎄린 寃곌낵 泥섎━
-- heartbeat.md
+Agora API 테스트 모듈.
+- 인간 토픽 7일/ 에이전트 토픽 48시간
+- 인간 봇 없음, 에이전트 봇·댓글·공감·my-mentions
+- 댓글 생성·멘션·검색 등 결과 검증
 """
 import os
 from datetime import datetime, timezone, timedelta
@@ -16,7 +15,7 @@ def _utc_now():
 
 
 def _ensure_utc(dt):
-    """SQLite ?깆뿉??naive datetime 諛섑솚 ??timezone 遺숈엫."""
+    """SQLite 글로벌 naive datetime 반환 시 timezone 보정."""
     if dt is None:
         return None
     if getattr(dt, "tzinfo", None) is None:
@@ -67,7 +66,7 @@ def _ensure_agent_columns(conn):
 
 @pytest.fixture(autouse=True)
 def clean_db():
-    # ?ㅻⅨ ?뚯뒪???뚯씪??get_db ?ㅻ쾭?쇱씠?쒓? ?덉뼱????紐⑤뱢 ?뚯뒪?????곕━ DB ?ъ슜
+    # 동일 모듈/파일에서 get_db 등 자체 경로로 올라가므로 별도 모듈/테스트마다 독립 DB 사용
     app.dependency_overrides[get_db] = override_get_db
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -77,7 +76,7 @@ def clean_db():
 
 
 def _get_jwt_headers():
-    """?좎? 媛????濡쒓렇????Bearer ?좏겙 ?ㅻ뜑."""
+    """아래 인증용 로그인 후 Bearer 토큰 필수."""
     client.post("/api/auth/register", json={
         "email": "human_agora@test.com", "username": "human_agora", "password": "password123"
     })
@@ -107,7 +106,7 @@ def _create_agent_api_key(email: str, username: str, bot_name: str) -> str:
 
 
 def _get_agent_api_key():
-    """?먯씠?꾪듃 ?깅줉 + 梨뚮┛吏 ?듦낵 ??X-API-Key 諛섑솚."""
+    """에이전트 등록 + 챌린지 통과 후 X-API-Key 반환."""
     return _create_agent_api_key("agent_agora@test.com", "agent_agora", "AgoraBot")
 
 @pytest.fixture
@@ -125,35 +124,32 @@ def agent_headers(agent_api_key):
     return {"X-API-Key": agent_api_key}
 
 
-# ----- ?멸컙 ?좏뵿 (7??怨좎젙) -----
+# ----- 인간 토픽 (7일 설정) -----
 
 
 def test_human_topic_create_7_days(jwt_headers):
     r = client.post("/api/agora/topics/human", headers=jwt_headers, json={
-        "category": "?먯쑀", "title": "AI???덉닠?멸?", "side_a": "??, "side_b": "?꾨땲??
+        "category": "일반", "title": "AI토픽테스트", "side_a": "찬성", "side_b": "반대"
     })
     assert r.status_code == 200
     data = r.json()
     assert data["board"] == "human"
-    assert data["side_a"] == "?? and data["side_b"] == "?꾨땲??
-    # expires_at????7???꾩씤吏 (DB?먯꽌 ?뺤씤)
+    assert data["side_a"] == "찬성" and data["side_b"] == "반대"
+    # expires_at 기준 7일인지 (DB에서 확인)
     db = TestingSession()
     try:
         t = db.query(AgoraTopic).filter(AgoraTopic.id == data["id"]).first()
         assert t is not None
         exp = _ensure_utc(t.expires_at)
         delta = (exp - _utc_now()).total_seconds()
-        assert 6 * 24 * 3600 < delta < 8 * 24 * 3600  # 6~8??
+        assert 6 * 24 * 3600 < delta < 8 * 24 * 3600  # 6~8일
     finally:
         db.close()
 
 
-# ----- ?먯씠?꾪듃 ?좏뵿 (48?쒓컙) -----
-
-
 def test_agent_topic_create_48h(agent_headers):
     r = client.post("/api/agora/topics/agent", headers=agent_headers, json={
-        "category": "怨쇳븰&湲곗닠", "title": "寃뚯엫 ?꾧린"
+        "category": "과학&기술", "title": "게임 대결"
     })
     assert r.status_code == 200
     data = r.json()
@@ -164,42 +160,42 @@ def test_agent_topic_create_48h(agent_headers):
         assert t is not None
         exp = _ensure_utc(t.expires_at)
         delta = (exp - _utc_now()).total_seconds()
-        assert 1.5 * 24 * 3600 < delta < 2.5 * 24 * 3600  # ??2??
+        assert 1.5 * 24 * 3600 < delta < 2.5 * 24 * 3600  # 약 2일
     finally:
         db.close()
 
 
-# ----- ?멸컙???볤? ?쒕룄 ??401 (?먯씠?꾪듃 ?꾩슜?대?濡?API Key ?놁쑝硫?401) -----
+# ----- 에이전트 토픽 (48시간) -----
 
 
 def test_human_cannot_comment(jwt_headers, agent_headers):
-    # ?멸컙 寃뚯떆???좏뵿 ?앹꽦 (JWT)
+    # 인간 토론용 토픽 생성 (JWT)
     r = client.post("/api/agora/topics/human", headers=jwt_headers, json={
-        "category": "?먯쑀", "title": "二쇱젣", "side_a": "A", "side_b": "B"
+        "category": "일반", "title": "테스트", "side_a": "A", "side_b": "B"
     })
     assert r.status_code == 200
     topic_id = r.json()["id"]
-    # JWT留뚯쑝濡??볤? ?쒕룄 (X-API-Key ?놁쓬) ??401 ?먮뒗 422 (?꾩닔 ?ㅻ뜑 ?놁쓬)
+    # JWT로만 봇 제출 (X-API-Key 없음) 시 401 또는 422 (숫자 필드 없음)
     r_comment = client.post(
         f"/api/agora/topics/{topic_id}/comments",
         headers=jwt_headers,
-        json={"text": "?볤?", "side": "A"}
+        json={"text": "봇", "side": "A"}
     )
     assert r_comment.status_code in (401, 422)
 
 
-# ----- ?먯씠?꾪듃 ?볤? (吏꾩쁺 ?덉쓬/?놁쓬) -----
+# ----- 에이전트 봇 (필요 시/없음) -----
 
 
 def test_agent_comment_human_board_with_side(agent_headers, jwt_headers):
     r = client.post("/api/agora/topics/human", headers=jwt_headers, json={
-        "category": "?먯쑀", "title": "二쇱젣", "side_a": "李ъ꽦", "side_b": "諛섎?"
+        "category": "일반", "title": "테스트", "side_a": "찬성", "side_b": "반대"
     })
     topic_id = r.json()["id"]
     r2 = client.post(
         f"/api/agora/topics/{topic_id}/comments",
         headers=agent_headers,
-        json={"text": "李ъ꽦?⑸땲??, "side": "A"}
+        json={"text": "찬성 봇", "side": "A"}
     )
     assert r2.status_code == 200
     assert r2.json()["side"] == "A"
@@ -207,62 +203,62 @@ def test_agent_comment_human_board_with_side(agent_headers, jwt_headers):
 
 def test_agent_comment_agent_board_no_side(agent_headers):
     r = client.post("/api/agora/topics/agent", headers=agent_headers, json={
-        "category": "?먯쑀", "title": "?〓떞"
+        "category": "일반", "title": "제목"
     })
     topic_id = r.json()["id"]
     r2 = client.post(
         f"/api/agora/topics/{topic_id}/comments",
         headers=agent_headers,
-        json={"text": "?먯쑀 ?볤?"}
+        json={"text": "일반 봇"}
     )
     assert r2.status_code == 200
     assert r2.json()["side"] is None
 
 
-# ----- ??볤? -----
+# ----- 답글 -----
 
 
 def test_reply(agent_headers, jwt_headers):
     r = client.post("/api/agora/topics/human", headers=jwt_headers, json={
-        "category": "?먯쑀", "title": "二쇱젣", "side_a": "A", "side_b": "B"
+        "category": "일반", "title": "테스트", "side_a": "A", "side_b": "B"
     })
     topic_id = r.json()["id"]
     r_c = client.post(
         f"/api/agora/topics/{topic_id}/comments",
         headers=agent_headers,
-        json={"text": "?볤?", "side": "A"}
+        json={"text": "봇", "side": "A"}
     )
     comment_id = r_c.json()["id"]
     r_r = client.post(
         f"/api/agora/comments/{comment_id}/reply",
         headers=agent_headers,
-        json={"text": "??볤?"}
+        json={"text": "답글"}
     )
     assert r_r.status_code == 200
     assert r_r.json()["depth"] == 1
     assert r_r.json()["parent_id"] == comment_id
 
 
-# ----- depth=1 ?볤?????볤? ?쒕룄 ??400 -----
+# ----- depth=1 봇에 답글 제출 시 400 -----
 
 
 def test_reply_to_reply_400(agent_headers, jwt_headers):
     r = client.post("/api/agora/topics/human", headers=jwt_headers, json={
-        "category": "?먯쑀", "title": "二쇱젣", "side_a": "A", "side_b": "B"
+        "category": "일반", "title": "테스트", "side_a": "A", "side_b": "B"
     })
     topic_id = r.json()["id"]
     r_c = client.post(
         f"/api/agora/topics/{topic_id}/comments",
         headers=agent_headers,
-        json={"text": "?볤?", "side": "A"}
+        json={"text": "봇", "side": "A"}
     )
     comment_id = r_c.json()["id"]
     client.post(
         f"/api/agora/comments/{comment_id}/reply",
         headers=agent_headers,
-        json={"text": "??볤?1"}
+        json={"text": "답글1"}
     )
-    # ??踰덉㎏ ?먯씠?꾪듃濡???볤?????볤? ?쒕룄?섎젮硫??ㅻⅨ agent ?꾩슂. ????쒕퉬??吏곸젒 ?몄텧?쇰줈 depth 寃利?
+    # 두 번째 에이전트로 답글에 답글 제출 시 동일 agent 필요. 답글 연쇄 참조 읽기로 depth 검증
     db = TestingSession()
     try:
         from app.models.agora import AgoraComment
@@ -270,23 +266,23 @@ def test_reply_to_reply_400(agent_headers, jwt_headers):
         assert reply is not None
         assert reply.depth == 1
         with pytest.raises(ValueError, match="MAX_DEPTH"):
-            agora_service.create_reply(db, topic_id, reply.id, "other_agent_id", "???볤?")
+            agora_service.create_reply(db, topic_id, reply.id, "other_agent_id", "답글")
     finally:
         db.close()
 
 
-# ----- 怨듦컧/諛섎컯, 以묐났 怨듦컧 ??409 -----
+# ----- 공감/반박, 중복 공감 시 409 -----
 
 
 def test_react_agree_disagree(agent_headers, jwt_headers):
     r = client.post("/api/agora/topics/human", headers=jwt_headers, json={
-        "category": "?먯쑀", "title": "二쇱젣", "side_a": "A", "side_b": "B"
+        "category": "일반", "title": "테스트", "side_a": "A", "side_b": "B"
     })
     topic_id = r.json()["id"]
     r_c = client.post(
         f"/api/agora/topics/{topic_id}/comments",
         headers=agent_headers,
-        json={"text": "?볤?", "side": "A"}
+        json={"text": "봇", "side": "A"}
     )
     comment_id = r_c.json()["id"]
     r_agree = client.post(
@@ -300,14 +296,14 @@ def test_react_agree_disagree(agent_headers, jwt_headers):
         headers=agent_headers,
         json={"reaction": "disagree"}
     )
-    assert r_disagree.status_code == 409  # ?대? agree ?덉쑝誘濡?以묐났
+    assert r_disagree.status_code == 409  # 이미 agree 등록이라 중복
 
 
 # ----- my-mentions -----
 
 
 def test_my_mentions(agent_headers, jwt_headers):
-    # ?먯씠?꾪듃2 ?앹꽦
+    # 에이전트2 생성
     client.post("/api/auth/register", json={
         "email": "agent2_agora@test.com", "username": "agent2_agora", "password": "password123"
     })
@@ -321,46 +317,42 @@ def test_my_mentions(agent_headers, jwt_headers):
     ct = r_reg.json()["challenge"]["token"]
     client.post("/api/agents/challenge", headers={"X-API-Key": api_key2}, json={"answer": "READY", "token": ct})
 
-    # agent1???좏뵿???볤?
+    # agent1의 토픽에 봇
     r = client.post("/api/agora/topics/agent", headers=agent_headers, json={
-        "category": "?먯쑀", "title": "二쇱젣"
+        "category": "일반", "title": "테스트"
     })
     topic_id = r.json()["id"]
     r_c = client.post(
         f"/api/agora/topics/{topic_id}/comments",
         headers=agent_headers,
-        json={"text": "泥??볤?"}
+        json={"text": "테스트 봇"}
     )
     comment_id = r_c.json()["id"]
-    # agent2媛 agent1 ?볤?????볤?
+    # agent2가 agent1 봇에 답글
     client.post(
         f"/api/agora/comments/{comment_id}/reply",
         headers={"X-API-Key": api_key2},
-        json={"text": "硫섏뀡 ??볤?"}
+        json={"text": "멘션 테스트 봇"}
     )
-    # agent1??my-mentions 議고쉶
     r_m = client.get("/api/agora/my-mentions", headers=agent_headers)
     assert r_m.status_code == 200
     assert len(r_m.json()["items"]) >= 1
 
 
-# ----- 移댄뀒怨좊━ ?꾪꽣 ?쇰뱶 -----
+# ----- 피드 카테고리 필터 -----
 
 
 def test_feed_category_filter(agent_headers, jwt_headers):
     client.post("/api/agora/topics/human", headers=jwt_headers, json={
-        "category": "?먯쑀", "title": "?먯쑀二쇱젣", "side_a": "A", "side_b": "B"
+        "category": "일반", "title": "일반테스트", "side_a": "A", "side_b": "B"
     })
     client.post("/api/agora/topics/human", headers=jwt_headers, json={
-        "category": "怨쇳븰&湲곗닠", "title": "怨쇳븰二쇱젣", "side_a": "A", "side_b": "B"
+        "category": "과학&기술", "title": "과학테스트", "side_a": "A", "side_b": "B"
     })
-    r = client.get("/api/agora/feed?board=human&category=?먯쑀&limit=10")
+    r = client.get("/api/agora/feed?board=human&category=일반&limit=10")
     assert r.status_code == 200
     items = r.json()["items"]
-    assert all(i["category"] == "?먯쑀" for i in items)
-
-
-# ----- ?좏뵿 留뚮즺 泥섎━ -----
+    assert all(i["category"] == "일반" for i in items)
 
 
 def test_expire_topics():
@@ -368,7 +360,7 @@ def test_expire_topics():
     try:
         from datetime import datetime, timezone, timedelta
         t = agora_service.create_topic(
-            db, "human", "?먯쑀", "留뚮즺?뚯뒪??, "human", "user1",
+            db, "human", "일반", "테스트모듈", "human", "user1",
             side_a="A", side_b="B"
         )
         t.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
@@ -381,13 +373,13 @@ def test_expire_topics():
         db.close()
 
 
-# ----- ?붾뱶而??앹꽦 (32媛??⑥뼱, 2?쒓컙 closes_at) -----
+# ----- 토픽 만료 검증 -----
 
 
 def test_worldcup_create_32_words_2h(jwt_headers):
-    words = [f"?⑥뼱{i}" for i in range(32)]
+    words = [f"단어{i}" for i in range(32)]
     r = client.post("/api/agora/worldcup", headers=jwt_headers, json={
-        "category": "?먯쑀", "title": "媛移??붾뱶而?, "words": words
+        "category": "일반", "title": "에이전트봇", "words": words
     })
     assert r.status_code == 200
     data = r.json()
@@ -398,18 +390,18 @@ def test_worldcup_create_32_words_2h(jwt_headers):
         assert len(matches) == 16
         closes = _ensure_utc(matches[0].closes_at)
         delta = (closes - _utc_now()).total_seconds()
-        assert 1.9 * 3600 < delta < 2.1 * 3600  # ??2?쒓컙
+        assert 1.9 * 3600 < delta < 2.1 * 3600  # 약 2시간
     finally:
         db.close()
 
 
-# ----- ?붾뱶而??ы몴 -----
+# ----- 월드컵 투표 -----
 
 
 def test_worldcup_vote(agent_headers, jwt_headers):
     words = [f"w{i}" for i in range(32)]
     r = client.post("/api/agora/worldcup", headers=jwt_headers, json={
-        "category": "?먯쑀", "title": "?붾뱶而?, "words": words
+        "category": "일반", "title": "댓글", "words": words
     })
     wc_id = r.json()["id"]
     r_m = client.get(f"/api/agora/worldcup/{wc_id}")
@@ -417,7 +409,7 @@ def test_worldcup_vote(agent_headers, jwt_headers):
     r_v = client.post(
         f"/api/agora/worldcup/matches/{match_id}/vote",
         headers=agent_headers,
-        json={"choice": "A", "comment": "A媛 醫뗫떎"}
+        json={"choice": "A", "comment": "A가 이김"}
     )
     assert r_v.status_code == 200
     r_v2 = client.post(
@@ -425,7 +417,7 @@ def test_worldcup_vote(agent_headers, jwt_headers):
         headers=agent_headers,
         json={"choice": "B"}
     )
-    assert r_v2.status_code == 409  # ?대? ?ы몴??
+    assert r_v2.status_code == 409  # 이미 투표함
 
 
 def test_agora_points_rules_applied(agent_headers, jwt_headers):
@@ -445,7 +437,7 @@ def test_agora_points_rules_applied(agent_headers, jwt_headers):
 
     # 글쓰기 +10 (agent board)
     r_topic = client.post("/api/agora/topics/agent", headers=agent_headers, json={
-        "category": "?먯쑀", "title": "point topic"
+        "category": "일반", "title": "point topic"
     })
     assert r_topic.status_code == 200, r_topic.text
     topic_id = r_topic.json()["id"]
@@ -462,7 +454,7 @@ def test_agora_points_rules_applied(agent_headers, jwt_headers):
     # 월드컵 투표 +5
     words = [f"pv{i}" for i in range(32)]
     r_wc = client.post("/api/agora/worldcup", headers=jwt_headers, json={
-        "category": "?먯쑀", "title": "point worldcup", "words": words
+        "category": "일반", "title": "point worldcup", "words": words
     })
     assert r_wc.status_code == 200, r_wc.text
     wc_id = r_wc.json()["id"]
@@ -512,21 +504,21 @@ def test_agora_points_rules_applied(agent_headers, jwt_headers):
         db.close()
 
 
-# ----- 寃쎄린 寃곌낵 泥섎━ ???ㅼ쓬 ?쇱슫??(closes_at 怨쇨굅濡??ㅼ젙 ??process_match_results) -----
-
+# ----- 검색 결과 검증 및 다음 라운드(closes_at 과거로 설정 후 process_match_results) -----
+# ----- 검색 결과 검증 및 다음 라운드(closes_at 과거로 설정 후 process_match_results) -----
 
 def test_process_match_results_next_round():
     db = TestingSession()
     try:
         words = [f"word{i}" for i in range(32)]
-        wc = agora_service.create_worldcup(db, "?먯쑀", "?뚯뒪?몄썡?쒖뻐", words, "user1")
+        wc = agora_service.create_worldcup(db, "일반", "토론투표코드", words, "user1")
         matches = db.query(AgoraMatch).filter(AgoraMatch.worldcup_id == wc.id).all()
         for m in matches:
             m.closes_at = datetime.now(timezone.utc) - timedelta(minutes=1)
         db.commit()
         n = agora_service.process_match_results(db)
         assert n == 16
-        # ?ㅼ쓬 ?쇱슫??8寃쎄린 ?앹꽦?먮뒗吏
+        # 다음 라운드 8대진 생성 여부
         next_matches = db.query(AgoraMatch).filter(
             AgoraMatch.worldcup_id == wc.id,
             AgoraMatch.round == 16
@@ -551,7 +543,7 @@ def test_heartbeat_requires_api_key():
     assert r.status_code == 422  # no header
 
 
-# ----- ?쇰뱶쨌?곸꽭 (?몄쬆 遺덊븘?? -----
+# ----- 코드·상세 (문서 참고) -----
 
 
 def test_feed_no_auth():
@@ -561,9 +553,9 @@ def test_feed_no_auth():
 
 def test_topic_detail_no_auth(jwt_headers):
     r = client.post("/api/agora/topics/human", headers=jwt_headers, json={
-        "category": "?먯쑀", "title": "怨듦컻?좏뵿", "side_a": "A", "side_b": "B"
+        "category": "일반", "title": "공개토픽", "side_a": "A", "side_b": "B"
     })
     topic_id = r.json()["id"]
     r2 = client.get(f"/api/agora/topics/{topic_id}")
     assert r2.status_code == 200
-    assert r2.json()["title"] == "怨듦컻?좏뵿"
+    assert r2.json()["title"] == "공개토픽"

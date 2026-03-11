@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
@@ -43,7 +43,7 @@ const BATTLE_UI_POSITIONS = {
 
 type AgentProfileMap = Record<string, AgentPublicResponse>
 
-/** 怨좎젙???쒖떆 ?쒖꽌濡??먯씠?꾪듃 ?뺣젹 (?꾩튂 蹂寃??놁씠 isActive留?諛붾뚮룄濡? */
+/** 고정 순서로 에이전트 정렬 (위치 변경 없이 isActive만 반영) */
 function sortAgentsByStableOrder(
   agents: MappedAgentState[],
   order: string[]
@@ -95,11 +95,13 @@ export default function BattleArenaSpectatorPage() {
   const [replayPlayedCount, setReplayPlayedCount] = useState(0)
   /** Round transition overlay state. */
   const [roundTransitionRound, setRoundTransitionRound] = useState<number | null>(null)
-  /** 留ㅼ묶 ?쒓컖(Unix 珥?. 10珥?移댁슫?몃떎???⑤꼸??*/
+  /** 매칭 시각(Unix 초. 10초 카운트다운용) */
   const [matchedAt, setMatchedAt] = useState<number | null>(null)
   const [waitingAgents, setWaitingAgents] = useState<{ id: string; name: string }[]>([])
   const [gameStatus, setGameStatus] = useState<string>("waiting")
   const [agentProfiles, setAgentProfiles] = useState<AgentProfileMap>({})
+  /** 리플레이 시작/재시작 시 카드 리마운트용(이전 게임 하트 잔상 방지) */
+  const [replaySessionKey, setReplaySessionKey] = useState(0)
 
   const cardRefs = useRef<(AgentCardHandle | null)[]>([])
   const wsRef = useRef<GameWebSocket | null>(null)
@@ -113,7 +115,7 @@ export default function BattleArenaSpectatorPage() {
   const replayInitialStateRef = useRef<{ agents: MappedAgentState[]; round: number } | null>(null)
   const isReplayModeRef = useRef(false)
   const agentProfilesRef = useRef<AgentProfileMap>({})
-  /** ?먯씠?꾪듃 移대뱶 ?꾩튂 怨좎젙?? 泥??섏떊 ??id ?쒖꽌瑜?怨좎젙?섍퀬 ?댄썑?먮뒗 isActive留?蹂寃?*/
+  /** 에이전트 카드 위치 고정: 최초 등장한 id 순서로 고정한 뒤 이후는 isActive만 변경 */
   const stableDisplayOrderRef = useRef<string[]>([])
   agentsRef.current = agents
   roundRef.current = round
@@ -138,7 +140,7 @@ export default function BattleArenaSpectatorPage() {
       })
     )
   }, [])
-  /** ?쇱슫???꾪솚: ?꾩껜 ?붾㈃ ?댄럺???쒖떆 ??3珥??湲? ?ㅼ쓬 ?쇱슫?쒖슜 媛?대뜲 濡쒓렇 珥덇린??*/
+  /** 라운드 전환: 한 번 다음으로 넘어가면 약 3초간. 다음 라운드 사용 시각 로그 초기화 */
   const onRoundTransition = useCallback(async (round: number) => {
     setRoundTransitionRound(round)
     await new Promise((r) => setTimeout(r, 2000))
@@ -146,7 +148,7 @@ export default function BattleArenaSpectatorPage() {
     setRoundEvents([])
   }, [])
 
-  /** ?먯씠?꾪듃 ?곹깭留?媛깆떊?섍퀬 移대뱶 ?쒖꽌??怨좎젙 (isActive ?섏씠?쇱씠?몃쭔 蹂寃? */
+  /** 에이전트 상태만 먼저 반영하고 카드 순서 고정 (isActive 이외만 변경) */
   const setAgentsSorted = useCallback((updater: (prev: MappedAgentState[]) => MappedAgentState[]) => {
     setAgents((prev) => {
       const next = updater(prev)
@@ -165,6 +167,7 @@ export default function BattleArenaSpectatorPage() {
   }, [])
 
   const handleWatchReplay = useCallback(async () => {
+    setReplaySessionKey((k) => k + 1)
     setGameOver(false)
     try {
       const data = await getGameLogs(gameId)
@@ -197,7 +200,7 @@ export default function BattleArenaSpectatorPage() {
       eventQueueRef.current?.enqueueAll(events)
       setQueueTick((t) => t + 1)
     } catch (e) {
-      console.error("[Replay] 濡쒓렇 濡쒕뱶 ?ㅽ뙣", e)
+      console.error("[Replay] 로그 로드 실패", e)
       setGameOver(true)
     }
   }, [gameId])
@@ -206,6 +209,7 @@ export default function BattleArenaSpectatorPage() {
     const init = replayInitialStateRef.current
     const evs = replayEventsRef.current
     if (!init || !evs.length) return
+    setReplaySessionKey((k) => k + 1)
     setAgentsSorted(() => init.agents)
     setRound(init.round)
     setGasActive(init.round >= 8)
@@ -369,15 +373,15 @@ export default function BattleArenaSpectatorPage() {
         ui.agents.forEach((a) => {
           if (a.name !== a.id) agentNamesRef.current[a.id] = a.name
         })
-        // ?쇱슫???섏씠利???대㉧??state_snapshot?먯꽌留?諛섏쁺 (???ъ깮 ???쇱튂?쒗궎湲?
+        // 라운드/이벤트는 state_snapshot으로 반영 (큰 오류 방지용)
         const events = battleStateToEvents(bs)
         eventQueueRef.current?.enqueueAll(events)
         setQueueTick((t) => t + 1)
       }
 
-      // round_end??state_update??battleStateToEvents?먯꽌 ?대? ?먯뿉 ?ы븿?섏뼱 ?쒖꽌媛 蹂댁옣??(蹂꾨룄 enqueue ????
+      // round_end 및 state_update는 battleStateToEvents로 한 번 처리해 두고 반영 (순서 enqueue 등)
       if (event.type === "round_end") {
-        // no-op: collect/round??state_snapshot 泥섎━ ??諛섏쁺??
+        // no-op: collect/round는 state_snapshot 처리만 반영
       }
 
       if (event.type === "game_end") {
@@ -387,7 +391,7 @@ export default function BattleArenaSpectatorPage() {
           gameEndToEvent(event.winner_id ?? null, event.results)
         )
         setQueueTick((t) => t + 1)
-        // 諛깆뿏?쒕뒗 ?대? 醫낅즺?쇰룄 ?꾨줎?몃뒗 ???쒖감 ?ъ깮???앸궇 ?뚭퉴吏 ?좎?. 寃뚯엫 醫낅즺???먯뿉??game_end 泥섎━ ??諛섏쁺.
+        // 이후에는 종료만 보여주는 등 게임 오류 표시/처리 생략. 게임 종료는 여기서 game_end 처리만 반영.
       }
     })
 
@@ -412,7 +416,7 @@ export default function BattleArenaSpectatorPage() {
     if (notFound) router.replace("/battle")
   }, [notFound, router])
 
-  // ?먯뿉??game_end 泥섎━ ?쒖뿉留?寃뚯엫 醫낅즺쨌WS ?곌껐 ?댁젣 (?쒖감 ?ъ깮 ?앷퉴吏 ?좎?)
+  // 여기서 game_end 처리 후에 게임 종료·WS 연결 해제 (게임 표시 생략 등)
   useEffect(() => {
     if (!gameOver) return
     wsRef.current?.disconnect()
@@ -420,7 +424,7 @@ export default function BattleArenaSpectatorPage() {
     setGameFinished(true)
   }, [gameOver])
 
-  // URL???replay=1 ?닿퀬 寃뚯엫???대? 醫낅즺??寃쎌슦 由ы뵆?덉씠 ?먮룞 ?쒖옉
+  // URL에 replay=1 붙여 게임이 이미 종료된 경우 리플레이를 자동 시작
   useEffect(() => {
     if (
       !loading &&
@@ -523,7 +527,7 @@ export default function BattleArenaSpectatorPage() {
 
           <div className="flex-1 flex items-center justify-center relative px-4 pt-3">
             <div className="relative">
-              {/* ?쒓퀎諛⑺뼢: ?좉났(0) ????1) ???고븯(2) ??醫뚰븯(3). 2?됱? 醫뚯슦 援먯껜 so [0,1,3,2] */}
+              {/* 슬롯 배치: 왼쪽(0) 위(1) 아래·찬성(2) 위·반대(3). 2번과 3번 시각 연결 so [0,1,3,2] */}
               <div className="grid grid-cols-2 gap-60">
                 {([0, 1, 3, 2] as const).map((agentIndex, slotIndex) => {
                   const agent = agents[agentIndex]
@@ -534,7 +538,7 @@ export default function BattleArenaSpectatorPage() {
                       ? Math.round(profile.total_stats.win_rate * 100)
                       : undefined
                   return (
-                    <div key={agent.id} className="relative">
+                    <div key={`${gameId}-${replaySessionKey}-${agent.id}`} className="relative">
                       <AgentCard
                         ref={(el) => {
                           cardRefs.current[agentIndex] = el
