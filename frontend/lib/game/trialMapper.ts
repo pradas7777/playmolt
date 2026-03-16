@@ -64,6 +64,25 @@ export function mapTrialAgentsToUI(
   const phase = ts.phase ?? "opening"
   const isVoteReveal =
     phase === "jury_final" || phase === "verdict"
+  // history 기반 최종 배심원 투표 복원 (과거 게임/구버전 상태 호환용)
+  const finalVotesByAgent: Record<string, "GUILTY" | "NOT_GUILTY"> = {}
+  if (Array.isArray(ts.history) && ts.history.length > 0) {
+    // 마지막 jury_final 항목을 찾아서 agent_id → verdict 매핑
+    for (let i = ts.history.length - 1; i >= 0; i--) {
+      const h = ts.history[i]
+      if (h?.phase === "jury_final" && Array.isArray(h.votes)) {
+        for (const v of h.votes) {
+          if (!v?.agent_id) continue
+          if (v.verdict === "GUILTY" || v.verdict === "guilty") {
+            finalVotesByAgent[v.agent_id] = "GUILTY"
+          } else if (v.verdict === "NOT_GUILTY" || v.verdict === "not_guilty") {
+            finalVotesByAgent[v.agent_id] = "NOT_GUILTY"
+          }
+        }
+        break
+      }
+    }
+  }
   const verdict = (v: string | null | undefined): "GUILTY" | "NOT_GUILTY" | null => {
     if (v === "GUILTY" || v === "guilty") return "GUILTY"
     if (v === "NOT_GUILTY" || v === "not_guilty") return "NOT_GUILTY"
@@ -84,6 +103,9 @@ export function mapTrialAgentsToUI(
     const name = role.startsWith("JUROR_")
       ? `배심원${role.replace("JUROR_", "")}`
       : rawName
+    const backendVote = (a as TrialAgentState & { vote?: string | null }).vote
+    const restoredVote = backendVote ?? finalVotesByAgent[id] ?? null
+    const mappedVerdict = verdict(restoredVote)
     return {
       id,
       name,
@@ -93,8 +115,8 @@ export function mapTrialAgentsToUI(
       evidenceFor: [],
       evidenceAgainst: [],
       isSpeaking: false,
-      vote: verdict(a.vote),
-      voteRevealed: isVoteReveal && a.vote != null,
+      vote: mappedVerdict,
+      voteRevealed: isVoteReveal && mappedVerdict != null,
     }
   })
   return list
@@ -262,13 +284,24 @@ export function getBubbleSequenceFromHistory(
     }
   }
   if (last.votes?.length) {
+    const jurorOrder = ["JUROR_1", "JUROR_2", "JUROR_3"] as const
+    const votesSteps: TrialBubbleStep[] = []
     for (const v of last.votes) {
       const verdictText = v.verdict === "GUILTY" || v.verdict === "guilty" ? "GUILTY" : "NOT GUILTY"
       const parts = [verdictText]
       if ((v.reason ?? "").trim()) parts.push((v.reason ?? "").trim())
       if ((v.question ?? "").trim()) parts.push(`Q: ${(v.question ?? "").trim()}`)
-      steps.push({ agentId: v.agent_id, text: parts.join(" — ") })
+      votesSteps.push({ agentId: v.agent_id, text: parts.join(" — ") })
     }
+    // 배심원 말풍선은 배심원1 → 배심원2 → 배심원3 순으로 정렬
+    votesSteps.sort((a, b) => {
+      const ra = agents.find((ag) => ag.id === a.agentId)?.role
+      const rb = agents.find((ag) => ag.id === b.agentId)?.role
+      const ia = ra ? jurorOrder.indexOf(ra as (typeof jurorOrder)[number]) : Number.MAX_SAFE_INTEGER
+      const ib = rb ? jurorOrder.indexOf(rb as (typeof jurorOrder)[number]) : Number.MAX_SAFE_INTEGER
+      return ia - ib
+    })
+    steps.push(...votesSteps)
   }
   if (last.question_summary && last.phase === "judge_expand") {
     const judge = agents.find((a) => a.role === "JUDGE")
@@ -284,12 +317,14 @@ export function getBubbleSequenceFromHistory(
 
 /** verdict 단계용: jury_final votes가 있는 마지막 history 항목에서 말풍선 순서 추출 */
 export function getJuryVerdictBubblesFromHistory(
-  history: TrialHistoryEntry[] | undefined
+  history: TrialHistoryEntry[] | undefined,
+  agents: TrialAgent[]
 ): TrialBubbleStep[] {
   if (!history?.length) return []
   for (let i = history.length - 1; i >= 0; i--) {
     const h = history[i]
     if (h.votes?.length) {
+      const jurorOrder = ["JUROR_1", "JUROR_2", "JUROR_3"] as const
       const steps: TrialBubbleStep[] = []
       for (const v of h.votes) {
         const verdictText = v.verdict === "GUILTY" || v.verdict === "guilty" ? "GUILTY" : "NOT GUILTY"
@@ -298,6 +333,14 @@ export function getJuryVerdictBubblesFromHistory(
         if ((v.question ?? "").trim()) parts.push(`Q: ${(v.question ?? "").trim()}`)
         steps.push({ agentId: v.agent_id, text: parts.join(" — ") })
       }
+      // 배심원1 → 배심원2 → 배심원3 순으로 정렬
+      steps.sort((a, b) => {
+        const ra = agents.find((ag) => ag.id === a.agentId)?.role
+        const rb = agents.find((ag) => ag.id === b.agentId)?.role
+        const ia = ra ? jurorOrder.indexOf(ra as (typeof jurorOrder)[number]) : Number.MAX_SAFE_INTEGER
+        const ib = rb ? jurorOrder.indexOf(rb as (typeof jurorOrder)[number]) : Number.MAX_SAFE_INTEGER
+        return ia - ib
+      })
       return steps
     }
   }
@@ -324,11 +367,13 @@ const NEW_PHASE_ORDER = [
   "verdict",
 ] as const
 
-/** 리플레이용: history + agents_meta → 적용할 TrialState 스텝 배열 (새 플로우) */
+/** 리플레이용: history + agents_meta → 적용할 TrialState 스텝 배열 (새 플로우)
+ * baseState 는 case/expansion 정도만 들어있는 partial TrialState 여도 된다.
+ */
 export function buildTrialReplaySteps(
   history: TrialHistoryEntry[],
   agentsMeta: Record<string, { name: string }>,
-  baseState?: TrialState
+  baseState?: Pick<TrialState, "case" | "expansion">
 ): TrialState[] {
   const steps: TrialState[] = []
   const agentsFromMeta: Record<string, TrialAgentState & { name?: string }> = {}

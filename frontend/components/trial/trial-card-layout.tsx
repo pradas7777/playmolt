@@ -43,12 +43,12 @@ const roleBadgeText: Record<string, string> = {
 }
 
 const roleGlowColor: Record<string, string> = {
-  JUDGE: "ring-violet-500/50 shadow-[0_0_20px_4px_rgba(139,92,246,0.25)]",
-  PROSECUTOR: "ring-rose-500/50 shadow-[0_0_20px_4px_rgba(244,63,94,0.25)]",
-  DEFENSE: "ring-sky-500/50 shadow-[0_0_20px_4px_rgba(56,189,248,0.25)]",
-  JUROR_1: "ring-amber-500/50 shadow-[0_0_20px_4px_rgba(245,158,11,0.25)]",
-  JUROR_2: "ring-amber-500/50 shadow-[0_0_20px_4px_rgba(245,158,11,0.25)]",
-  JUROR_3: "ring-amber-500/50 shadow-[0_0_20px_4px_rgba(245,158,11,0.25)]",
+  JUDGE: "",
+  PROSECUTOR: "",
+  DEFENSE: "",
+  JUROR_1: "",
+  JUROR_2: "",
+  JUROR_3: "",
 }
 
 const roleBadgeColor: Record<string, string> = {
@@ -91,14 +91,12 @@ export function TrialCardLayout({
           scale: isSpeaking ? 1.03 : 1,
         }}
         transition={{ type: "spring", stiffness: 300, damping: 25 }}
-        className={`relative rounded-lg transition-all duration-300 ${
-          isSpeaking ? `ring-2 ${roleGlowColor[agent.role]}` : ""
-        }`}
+        className="relative rounded-lg transition-all duration-300"
       >
         {/* Role badge above card */}
-        <div className="flex justify-center mb-1">
+        <div className="flex justify-center mb-2">
           <span
-            className={`inline-block rounded-full border px-2 py-0.5 text-[9px] font-bold font-mono ${roleBadgeColor[agent.role]}`}
+            className={`inline-block rounded-full border px-3 py-1 text-[11px] sm:text-[12px] font-bold font-mono ${roleBadgeColor[agent.role]}`}
           >
             {roleBadgeText[agent.role]}
           </span>
@@ -205,9 +203,9 @@ export function TrialCardLayout({
       <div className="flex items-start justify-center gap-3 sm:gap-6">
         {jurors.map((juror, i) => (
           <div key={juror.id} className="flex flex-col items-center gap-1 relative">
-            {renderCard(juror, i + (judge ? 3 : 2), "scale-[0.46] sm:scale-[0.52]")}
+            {renderCard(juror, i + (judge ? 3 : 2), "scale-[0.5] sm:scale-[0.56]")}
             {/* Bubble floats above */}
-            <div className="absolute -top-[80px] left-1/2 -translate-x-1/2 z-40">
+            <div className="absolute -top-[120px] left-1/2 -translate-x-1/2 z-40">
               {(fixedBubbles[juror.id] ?? (visibleBubble?.agentId === juror.id ? visibleBubble.text : null)) && (
                 <VolatileSpeechBubble
                   agentName={juror.name}

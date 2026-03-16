@@ -276,6 +276,12 @@ class TrialEngine(BaseGameEngine):
             # --- opening: ready만 허용, pending에 ready만 기록 ---
             if phase == PHASE_OPENING:
                 if atype != "ready":
+                    default = self.default_action(agent.id)
+                    ts.setdefault("pending_actions", {})[agent.id] = default
+                    self._commit(ts)
+                    self._broadcast_trial_state()
+                    if self._count_effective_submissions(ts) >= self._required_submissions(ts):
+                        self._advance_phase()
                     return {"success": False, "error": "OPENING_REQUIRES_READY", "expected_action": "ready", "hint": "Send {\"type\": \"ready\"}."}
                 ts.setdefault("pending_actions", {})[agent.id] = {"type": "ready"}
                 self._commit(ts)
@@ -285,6 +291,7 @@ class TrialEngine(BaseGameEngine):
                 return {"success": True, "message": "제출되었습니다"}
 
             # --- argument_1: 검사/변호만 arg1, evidence_key 검증 ---
+            # 비참여 역할(PROSECUTOR/DEFENSE가 아님)이 액션을 보내면 이 phase에서는 항상 pass로만 기록된다.
             if phase == PHASE_ARG1:
                 if role not in ("PROSECUTOR", "DEFENSE"):
                     ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
@@ -292,6 +299,12 @@ class TrialEngine(BaseGameEngine):
                     self._broadcast_trial_state()
                     return {"success": True, "message": "NOT_ACTOR_THIS_PHASE"}
                 if atype != "arg1":
+                    default = self.default_action(agent.id)
+                    ts.setdefault("pending_actions", {})[agent.id] = default
+                    self._commit(ts)
+                    self._broadcast_trial_state()
+                    if self._count_effective_submissions(ts) >= self._required_submissions(ts):
+                        self._advance_phase()
                     return {"success": False, "error": "ARG1_REQUIRED", "expected_action": "arg1", "hint": "{\"type\": \"arg1\", \"evidence_key\": \"...\", \"claim\": \"...\"}"}
                 case = ts.get("case", {})
                 evidence_key = (action.get("evidence_key") or "").strip()
@@ -303,6 +316,12 @@ class TrialEngine(BaseGameEngine):
                 if not isinstance(allowed, list):
                     allowed = []
                 if evidence_key not in allowed:
+                    default = self.default_action(agent.id)
+                    ts.setdefault("pending_actions", {})[agent.id] = default
+                    self._commit(ts)
+                    self._broadcast_trial_state()
+                    if self._count_effective_submissions(ts) >= self._required_submissions(ts):
+                        self._advance_phase()
                     return {"success": False, "error": "INVALID_EVIDENCE_KEY", "expected_action": "arg1", "hint": f"evidence_key must be one of: {allowed}"}
                 ts.setdefault("pending_actions", {})[agent.id] = {"type": "arg1", "evidence_key": evidence_key, "claim": claim, "role": role}
                 self._commit(ts)
@@ -312,6 +331,7 @@ class TrialEngine(BaseGameEngine):
                 return {"success": True, "message": "제출되었습니다"}
 
             # --- jury_interim: 배심원만 jury_interim, reason/question 필수 ---
+            # 비참여 역할(JUROR가 아님)은 액션을 보내면 해당 phase에서 pass로 기록되고, 아무 것도 안 보내면 완전히 무시된다.
             if phase == PHASE_JURY_INTERIM:
                 if role != "JUROR":
                     ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
@@ -319,6 +339,12 @@ class TrialEngine(BaseGameEngine):
                     self._broadcast_trial_state()
                     return {"success": True, "message": "NOT_ACTOR_THIS_PHASE"}
                 if atype != "jury_interim":
+                    default = self.default_action(agent.id)
+                    ts.setdefault("pending_actions", {})[agent.id] = default
+                    self._commit(ts)
+                    self._broadcast_trial_state()
+                    if self._count_effective_submissions(ts) >= self._required_submissions(ts):
+                        self._advance_phase()
                     return {"success": False, "error": "JURY_INTERIM_REQUIRED", "expected_action": "jury_interim", "hint": "verdict, reason, question required."}
                 verdict = (action.get("verdict") or "NOT_GUILTY").upper()
                 if verdict not in ("GUILTY", "NOT_GUILTY"):
@@ -333,6 +359,7 @@ class TrialEngine(BaseGameEngine):
                 return {"success": True, "message": "제출되었습니다"}
 
             # --- judge_expand: 판사만, 스키마 검증(리스트 길이 1) ---
+            # JUDGE가 아닌 역할이 액션을 보내면 이 phase에서는 pass만 기록된다.
             if phase == PHASE_JUDGE_EXPAND:
                 if role != "JUDGE":
                     ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
@@ -340,6 +367,12 @@ class TrialEngine(BaseGameEngine):
                     self._broadcast_trial_state()
                     return {"success": True, "message": "NOT_ACTOR_THIS_PHASE"}
                 if atype != "judge_expand":
+                    default = self.default_action(agent.id)
+                    ts.setdefault("pending_actions", {})[agent.id] = default
+                    self._commit(ts)
+                    self._broadcast_trial_state()
+                    if self._count_effective_submissions(ts) >= self._required_submissions(ts):
+                        self._advance_phase()
                     return {"success": False, "error": "JUDGE_EXPAND_REQUIRED", "expected_action": "judge_expand", "hint": "question_summary, added_fact, new_evidence_for[1], new_evidence_against[1]"}
                 qs = (action.get("question_summary") or "").strip()[:MAX_QUESTION_SUMMARY_LEN]
                 af = action.get("added_fact")
@@ -352,8 +385,20 @@ class TrialEngine(BaseGameEngine):
                 nef = action.get("new_evidence_for")
                 nea = action.get("new_evidence_against")
                 if not isinstance(nef, list) or len(nef) != 1:
+                    default = self.default_action(agent.id)
+                    ts.setdefault("pending_actions", {})[agent.id] = default
+                    self._commit(ts)
+                    self._broadcast_trial_state()
+                    if self._count_effective_submissions(ts) >= self._required_submissions(ts):
+                        self._advance_phase()
                     return {"success": False, "error": "NEW_EVIDENCE_FOR_LEN_1", "expected_action": "judge_expand"}
                 if not isinstance(nea, list) or len(nea) != 1:
+                    default = self.default_action(agent.id)
+                    ts.setdefault("pending_actions", {})[agent.id] = default
+                    self._commit(ts)
+                    self._broadcast_trial_state()
+                    if self._count_effective_submissions(ts) >= self._required_submissions(ts):
+                        self._advance_phase()
                     return {"success": False, "error": "NEW_EVIDENCE_AGAINST_LEN_1", "expected_action": "judge_expand"}
                 e1 = nef[0] if isinstance(nef[0], dict) else {}
                 e2 = nea[0] if isinstance(nea[0], dict) else {}
@@ -374,6 +419,7 @@ class TrialEngine(BaseGameEngine):
                 return {"success": True, "message": "제출되었습니다"}
 
             # --- argument_2: 검사/변호만 arg2, evidence_key는 expansion 신규 증거 중 하나 ---
+            # PROSECUTOR/DEFENSE가 아닌 역할은 액션을 보내면 pass로 처리되고, 보내지 않으면 타임아웃 시에도 완전히 무시된다.
             if phase == PHASE_ARG2:
                 if role not in ("PROSECUTOR", "DEFENSE"):
                     ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
@@ -381,6 +427,12 @@ class TrialEngine(BaseGameEngine):
                     self._broadcast_trial_state()
                     return {"success": True, "message": "NOT_ACTOR_THIS_PHASE"}
                 if atype != "arg2":
+                    default = self.default_action(agent.id)
+                    ts.setdefault("pending_actions", {})[agent.id] = default
+                    self._commit(ts)
+                    self._broadcast_trial_state()
+                    if self._count_effective_submissions(ts) >= self._required_submissions(ts):
+                        self._advance_phase()
                     return {"success": False, "error": "ARG2_REQUIRED", "expected_action": "arg2", "hint": "{\"type\": \"arg2\", \"evidence_key\": \"<expansion에서 1개>\", \"claim\": \"...\"}"}
                 expansion = ts.get("expansion") or _empty_expansion()
                 keys_for = [e.get("key", "") for e in (expansion.get("new_evidence_for") or []) if e.get("key")]
@@ -389,6 +441,12 @@ class TrialEngine(BaseGameEngine):
                 evidence_key = (action.get("evidence_key") or "").strip()
                 claim = (action.get("claim") or "").strip()[:MAX_CLAIM_LEN]
                 if evidence_key not in allowed_keys:
+                    default = self.default_action(agent.id)
+                    ts.setdefault("pending_actions", {})[agent.id] = default
+                    self._commit(ts)
+                    self._broadcast_trial_state()
+                    if self._count_effective_submissions(ts) >= self._required_submissions(ts):
+                        self._advance_phase()
                     return {"success": False, "error": "INVALID_EVIDENCE_KEY_ARG2", "expected_action": "arg2", "hint": f"evidence_key must be one of expansion keys: {allowed_keys}"}
                 ts.setdefault("pending_actions", {})[agent.id] = {"type": "arg2", "evidence_key": evidence_key, "claim": claim, "role": role}
                 self._commit(ts)
@@ -398,6 +456,7 @@ class TrialEngine(BaseGameEngine):
                 return {"success": True, "message": "제출되었습니다"}
 
             # --- jury_final: 배심원만 jury_final, reason 필수 ---
+            # JUROR가 아닌 역할은 이 phase에서 어떤 액션을 보내도 pass로만 기록된다.
             if phase == PHASE_JURY_FINAL:
                 if role != "JUROR":
                     ts.setdefault("pending_actions", {})[agent.id] = {"type": "pass"}
@@ -405,6 +464,12 @@ class TrialEngine(BaseGameEngine):
                     self._broadcast_trial_state()
                     return {"success": True, "message": "NOT_ACTOR_THIS_PHASE"}
                 if atype != "jury_final":
+                    default = self.default_action(agent.id)
+                    ts.setdefault("pending_actions", {})[agent.id] = default
+                    self._commit(ts)
+                    self._broadcast_trial_state()
+                    if self._count_effective_submissions(ts) >= self._required_submissions(ts):
+                        self._advance_phase()
                     return {"success": False, "error": "JURY_FINAL_REQUIRED", "expected_action": "jury_final", "hint": "verdict, reason required."}
                 verdict = (action.get("verdict") or "NOT_GUILTY").upper()
                 if verdict not in ("GUILTY", "NOT_GUILTY"):
@@ -420,6 +485,13 @@ class TrialEngine(BaseGameEngine):
             if phase == PHASE_VERDICT:
                 return {"success": False, "error": "TRIAL_ENDED", "expected_action": "pass", "hint": "Trial has ended."}
 
+            # 정의되지 않은 phase에서 온 액션도 default_action으로 기록해 게임이 멈추지 않도록 함
+            default = self.default_action(agent.id)
+            ts.setdefault("pending_actions", {})[agent.id] = default
+            self._commit(ts)
+            self._broadcast_trial_state()
+            if self._count_effective_submissions(ts) >= self._required_submissions(ts):
+                self._advance_phase()
             return {"success": False, "error": f"NO_ACTION_IN_PHASE_{phase}", "expected_action": "", "hint": "Wait for next phase."}
 
     def default_action(self, agent_id: str) -> dict:

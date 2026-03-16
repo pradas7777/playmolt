@@ -74,8 +74,8 @@ export function VolatileSpeechBubble({
             position === "left" ? "items-end" : position === "right" ? "items-start" : "items-center"
           }`}
         >
-          {/* Speaker name badge */}
-          <span className={`text-[8px] font-mono font-bold mb-0.5 px-2 py-0 rounded-full border ${roleBadgeColors[role]}`}>
+          {/* Speaker name / role badge */}
+          <span className={`text-[10px] sm:text-[11px] font-mono font-bold mb-1 px-3 py-0.5 rounded-full border ${roleBadgeColors[role]}`}>
             {agentName}
           </span>
 

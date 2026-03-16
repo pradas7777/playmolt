@@ -124,8 +124,13 @@ export default function TrialSpectatorPage() {
       }
       setBatchTargetRevealed(revealedLogCountRef.current + getBubbleCountFromState(ts))
 
-      const votePhase = ui.phase === "JURY_FINAL" || ui.phase === "VERDICT"
-      const jurors = ui.agents.filter((a) => a.role.startsWith("JUROR"))
+      const votePhase = ui.phase === "VERDICT"
+      const jurors = ui.agents
+        .filter((a) => a.role.startsWith("JUROR"))
+        .sort((a, b) => {
+          const order = ["JUROR_1", "JUROR_2", "JUROR_3"] as const
+          return order.indexOf(a.role as (typeof order)[number]) - order.indexOf(b.role as (typeof order)[number])
+        })
 
       if (ui.phase === "VERDICT" && ui.verdict) {
         const isGuilty = ui.verdict.toUpperCase() === "GUILTY"
@@ -136,14 +141,14 @@ export default function TrialSpectatorPage() {
           guiltyCount: guiltyCount || (isGuilty ? 2 : 0),
           notGuiltyCount: notGuiltyCount || (isGuilty ? 0 : 2),
         }
-        const juryBubbles = getJuryVerdictBubblesFromHistory(ts.history)
+        const juryBubbles = getJuryVerdictBubblesFromHistory(ts.history, ui.agents)
         setVerdictPrepStep("bubbles")
         setBubbleSteps(juryBubbles)
         setBubbleIndex(0)
         setJuryVotes(
           jurors.map((j) => ({
             jurorName: j.name,
-            vote: j.vote,
+            vote: j.vote ?? null,
             revealed: false,
           }))
         )
@@ -157,7 +162,7 @@ export default function TrialSpectatorPage() {
           setJuryVotes(
             jurors.map((j) => ({
               jurorName: j.name,
-              vote: j.vote,
+              vote: j.vote ?? null,
               revealed: j.voteRevealed ?? false,
             }))
           )
@@ -170,7 +175,7 @@ export default function TrialSpectatorPage() {
 
       const steps =
         ui.phase === "VERDICT"
-          ? getJuryVerdictBubblesFromHistory(ts.history)
+          ? getJuryVerdictBubblesFromHistory(ts.history, ui.agents)
           : getBubbleSequenceFromHistory(ts.history, ui.agents)
 
       const roundKey = `${ui.phase}-${ts.history?.length ?? 0}`
@@ -212,7 +217,22 @@ export default function TrialSpectatorPage() {
       return
     }
     if (bubbleIndex >= bubbleSteps.length) return
+
     const current = bubbleSteps[bubbleIndex]
+
+    const isJuryVotePhase =
+      phase === "JURY_INTERIM" || phase === "JURY_FINAL"
+
+    // 배심원 투표 관련 단계에서는,
+    // - JURY_INTERIM / JURY_FINAL: 1번, 2번, 3번 순서대로 누적해서 화면에 남김
+    // - verdictPrepStep === "bubbles": 최종 투표 말풍선도 동일하게 누적
+    if (isJuryVotePhase || verdictPrepStep === "bubbles") {
+      setFixedBubbles((prev) => ({
+        ...prev,
+        [current.agentId]: current.text,
+      }))
+    }
+
     setVisibleBubble({ agentId: current.agentId, text: current.text })
     setAgents((prev) =>
       prev.map((a) => ({
@@ -220,22 +240,34 @@ export default function TrialSpectatorPage() {
         isSpeaking: a.id === current.agentId,
       }))
     )
+    // 말풍선 표시 시간:
+    // - 일반 phase: 고정 BUBBLE_DURATION_MS
+    // - 배심원 투표/최종 투표 말풍선: 텍스트 길이에 비례해서 더 길게 유지 (타자 효과가 끝날 때까지)
+    const bubbleDuration =
+      verdictPrepStep === "bubbles" || isJuryVotePhase
+        ? Math.max(BUBBLE_DURATION_MS, current.text.length * 40 + 400)
+        : BUBBLE_DURATION_MS
+
     if (bubbleIndex >= bubbleSteps.length - 1) {
-      setFixedBubbles((prev) => ({
-        ...prev,
-        ...Object.fromEntries(bubbleSteps.map((s) => [s.agentId, s.text])),
-      }))
+      // 일반 phase 에서는 마지막에 그 phase 발언들을 모두 고정 말풍선으로 남긴다.
+      // 배심원 투표 관련 단계에서는 위에서 이미 누적했으므로 추가 누적은 하지 않는다.
+      if (!isJuryVotePhase && verdictPrepStep !== "bubbles") {
+        setFixedBubbles((prev) => ({
+          ...prev,
+          ...Object.fromEntries(bubbleSteps.map((s) => [s.agentId, s.text])),
+        }))
+      }
       if (verdictPrepStep === "bubbles") {
         const t = setTimeout(() => {
           setVerdictPrepStep("vote_reveal")
           setShowVotePanel(true)
           setActiveJurorIdx(0)
-        }, BUBBLE_DURATION_MS)
+        }, bubbleDuration)
         return () => clearTimeout(t)
       }
       return
     }
-    const t = setTimeout(() => setBubbleIndex((i) => i + 1), BUBBLE_DURATION_MS)
+    const t = setTimeout(() => setBubbleIndex((i) => i + 1), bubbleDuration)
     return () => clearTimeout(t)
   }, [bubbleSteps, bubbleIndex, verdictPrepStep])
 
@@ -599,16 +631,6 @@ export default function TrialSpectatorPage() {
                     />
                   </div>
                 )}
-
-                {showVotePanel && (
-                  <div className={`absolute z-20 ${isReplayMode ? "bottom-[220px] right-4" : "bottom-[200px] left-1/2 -translate-x-1/2"}`}>
-                    <JuryVotePanel
-                      active={showVotePanel}
-                      votes={juryVotes}
-                      activeJurorIdx={activeJurorIdx}
-                    />
-                  </div>
-                )}
               </div>
             </div>
 
@@ -624,6 +646,18 @@ export default function TrialSpectatorPage() {
 
           <div className="h-8 sm:h-10 flex-shrink-0 shrink-0 bg-gradient-to-t from-background to-transparent pointer-events-none" />
         </div>
+
+        {showVotePanel && (
+          <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-end pr-4 sm:pr-8">
+            <div className="pointer-events-auto w-full max-w-[360px]">
+              <JuryVotePanel
+                active={showVotePanel}
+                votes={juryVotes}
+                activeJurorIdx={activeJurorIdx}
+              />
+            </div>
+          </div>
+        )}
 
         <VerdictSequence
           active={verdictState.active}

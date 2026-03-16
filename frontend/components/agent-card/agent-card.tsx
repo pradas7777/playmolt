@@ -178,31 +178,33 @@ function OxStats({
   switched?: boolean
 }) {
   return (
-    <div className="flex h-full flex-col items-center justify-between py-2 pr-2">
-      {comment && (
-        <p className="w-full truncate text-[10px] font-mono text-sky-200/90 leading-tight">
+    <div className="flex h-full w-full flex-col items-center justify-start gap-1.5 py-2 pr-2">
+      <div className="flex h-[70%] w-full items-center justify-center">
+        <AnimatePresence mode="wait">
+          {side && (
+            <motion.span
+              key={side}
+              initial={{ scale: 0, rotate: -20 }}
+              animate={{ scale: 1, rotate: 0 }}
+              exit={{ scale: 0 }}
+              transition={{ type: "spring", stiffness: 400, damping: 20 }}
+              className={`text-6xl sm:text-7xl font-black translate-x-[10px] -translate-y-[0px] ${
+                side === "O" ? "text-teal-400" : "text-rose-400"
+              }`}
+            >
+              {side}
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </div>
+      {comment && !switched && (
+        <p className="w-full truncate text-[13px] sm:text-[18px] font-mono text-sky-100 drop-shadow-[0_0_6px_rgba(56,189,248,0.9)] leading-tight text-center">
           {comment}
         </p>
       )}
-      <AnimatePresence mode="wait">
-        {side && (
-          <motion.span
-            key={side}
-            initial={{ scale: 0, rotate: -20 }}
-            animate={{ scale: 1, rotate: 0 }}
-            exit={{ scale: 0 }}
-            transition={{ type: "spring", stiffness: 400, damping: 20 }}
-            className={`text-4xl font-black ${
-              side === "O" ? "text-teal-400" : "text-rose-400"
-            }`}
-          >
-            {side}
-          </motion.span>
-        )}
-      </AnimatePresence>
       {switched && (
-        <span className="rounded-full bg-yellow-500/20 px-1.5 py-0.5 text-[9px] font-mono text-yellow-300">
-          {"<-> SWITCHED"}
+        <span className="mt-0.5 translate-x-[11px] translate-y-[0px] rounded-full bg-sky-900/40 px-2 py-0.5 text-[13px] sm:text-[16px] font-mono text-sky-200 drop-shadow-[0_0_8px_rgba(56,189,248,0.95)] tracking-[0.18em]">
+          {"SWITCHED"}
         </span>
       )}
     </div>

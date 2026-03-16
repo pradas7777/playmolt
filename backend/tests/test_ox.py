@@ -140,3 +140,81 @@ def test_ox_5_bots_full_flow():
     final = _state(keys[0], game_id)
     assert final["gameStatus"] == "finished"
     assert len(final.get("history", [])) >= 5
+
+
+def test_ox_invalid_action_uses_default_and_advances_phase():
+    """first_choice/switch 에서 잘못된 type 을 보내도 default_action 으로 처리되어 게임이 진행되는지 검사."""
+    keys = [_create_bot(f"ox_invalid{i}@test.com", f"ox_invalid{i}") for i in range(5)]
+    game_id = _join_n_parallel(keys, "ox", 5)
+
+    # first_choice 단계에서 첫 번째 에이전트는 잘못된 type 전송
+    bad_resp = _action(keys[0], game_id, {"type": "switch", "use_switch": True, "comment": "wrong phase"})
+    assert bad_resp.get("success") is False
+    assert bad_resp.get("error") == "FIRST_CHOICE_PHASE"
+    assert bad_resp.get("expected_action") == "first_choice"
+
+    # 나머지 에이전트는 정상 first_choice
+    for key in keys[1:]:
+        resp = _action(key, game_id, {"type": "first_choice", "choice": "O", "comment": ""})
+        assert resp.get("success") is True, resp
+
+    # first_choice 가 모두 채워지면 자동으로 reveal → switch 로 넘어가야 한다.
+    state = _state(keys[0], game_id)
+    assert state["phase"] in ("reveal", "switch", "final_result")
+
+    # switch 단계에서도 잘못된 type 을 보내면 default switch 로 처리되고 진행되어야 한다.
+    if state["phase"] != "switch":
+        # reveal 이면 한 번 더 상태 조회해서 switch 까지 넘긴다.
+        state = _state(keys[0], game_id)
+    assert state["phase"] in ("switch", "final_result")
+
+    # 아직 final_result 가 아니라면 switch 액션을 보낸다.
+    if state["phase"] == "switch":
+        bad_resp2 = _action(keys[0], game_id, {"type": "first_choice", "choice": "X", "comment": "wrong in switch"})
+        assert bad_resp2.get("success") is False
+        assert bad_resp2.get("error") == "SWITCH_PHASE"
+        assert bad_resp2.get("expected_action") == "switch"
+        for key in keys[1:]:
+            resp = _action(key, game_id, {"type": "switch", "use_switch": False, "comment": ""})
+            assert resp.get("success") is True, resp
+
+    # 라운드가 정상 진행되어 history 에 최소 1라운드 결과가 쌓였는지 확인.
+    final = _state(keys[0], game_id)
+    assert len(final.get("history", [])) >= 1
+    last = final["history"][-1]
+    assert "distribution" in last
+    assert "choices" in last
+
+
+def test_ox_timeout_applies_default_actions_and_advances_phase():
+    """first_choice 타임아웃 시 default_action 으로 채우고 다음 phase 로 넘어가는지 검사."""
+    keys = [_create_bot(f"ox_timeout{i}@test.com", f"ox_timeout{i}") for i in range(5)]
+    game_id = _join_n_parallel(keys, "ox", 5)
+
+    # 한 명만 first_choice 제출, 나머지는 제출하지 않고 타임아웃을 강제로 발생시킨다.
+    resp = _action(keys[0], game_id, {"type": "first_choice", "choice": "O", "comment": ""})
+    assert resp.get("success") is True, resp
+
+    # DB 의 ox_state.phase_started_at 을 과거로 밀어서 타임아웃 조건을 만족시키고 apply_phase_timeout 을 호출한다.
+    from app.core.database import get_db
+    from app.models.game import Game
+    from app.engines.ox import OxEngine
+
+    db = next(override_get_db())
+    try:
+        game = db.query(Game).filter_by(id=game_id).first()
+        assert game is not None
+        os = (game.config or {}).get("ox_state") or {}
+        os["phase_started_at"] = 0  # 오래전에 시작된 것으로 처리
+        game.config = (game.config or {}) | {"ox_state": os}
+        db.commit()
+
+        engine = OxEngine(game, db)
+        changed = engine.apply_phase_timeout()
+        assert changed is True
+    finally:
+        db.close()
+
+    state = _state(keys[0], game_id)
+    # 타임아웃 후에는 최소한 reveal 또는 그 이후 phase 로 넘어가 있어야 한다.
+    assert state["phase"] in ("reveal", "switch", "final_result")

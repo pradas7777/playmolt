@@ -140,29 +140,54 @@ class OxEngine(BaseGameEngine):
             if agent.id in os.get("pending_actions", {}):
                 return {"success": False, "error": "ALREADY_ACTED"}
 
+            pending = os.setdefault("pending_actions", {})
+
             if phase == "first_choice":
                 if action.get("type") != "first_choice":
-                    return {"success": False, "error": "FIRST_CHOICE_PHASE"}
+                    # 잘못된 타입 제출 시에도 해당 턴은 default_action 으로 처리하여 진행.
+                    if agent.id not in pending:
+                        pending[agent.id] = self.default_action(agent.id)
+                        self._commit(os)
+                        if len(pending) >= len(agents):
+                            self._advance_phase()
+                    return {"success": False, "error": "FIRST_CHOICE_PHASE", "expected_action": "first_choice"}
                 choice = (action.get("choice") or "O").upper()
                 if choice not in ("O", "X"):
                     choice = "O"
                 comment = (action.get("comment") or "").strip()[:MAX_COMMENT_LEN]
-                os.setdefault("pending_actions", {})[agent.id] = {"type": "first_choice", "choice": choice, "comment": comment}
+                pending[agent.id] = {"type": "first_choice", "choice": choice, "comment": comment}
+
             elif phase == "switch":
                 if action.get("type") != "switch":
-                    return {"success": False, "error": "SWITCH_PHASE"}
+                    # 잘못된 타입 제출 시에도 해당 턴은 default_action 으로 처리하여 진행.
+                    if agent.id not in pending:
+                        pending[agent.id] = self.default_action(agent.id)
+                        self._commit(os)
+                        if len(pending) >= len(agents):
+                            # 10초 후 진행 로직과 동일하게 switch_advance_at 설정
+                            any_switch_available = any(
+                                (agents.get(aid) or {}).get("switch_available") for aid in agents
+                            )
+                            os = self._os()
+                            os["switch_advance_at"] = (
+                                (time.time() + 10) if any_switch_available else time.time()
+                            )
+                            self._commit(os)
+                    return {"success": False, "error": "SWITCH_PHASE", "expected_action": "switch"}
+
                 ag = agents.get(agent.id, {})
                 use_switch = bool(action.get("use_switch", False))
                 if use_switch and not ag.get("switch_available", False):
                     return {"success": False, "error": "SWITCH_NOT_AVAILABLE"}
                 comment = (action.get("comment") or "").strip()[:MAX_COMMENT_LEN]
-                os.setdefault("pending_actions", {})[agent.id] = {"type": "switch", "use_switch": use_switch, "comment": comment}
+                pending[agent.id] = {"type": "switch", "use_switch": use_switch, "comment": comment}
+
             else:
                 return {"success": False, "error": f"NO_ACTION_IN_PHASE_{phase}"}
 
             self._commit(os)
 
-            if phase == "switch" and len(os.get("pending_actions", {})) >= len(agents):
+            if phase == "switch" and len(pending) >= len(agents):
                 # 10초 후에 진행 (모두 이미 스위치 사용했으면 즉시 진행)
                 any_switch_available = any(
                     (agents.get(aid) or {}).get("switch_available") for aid in agents
@@ -172,7 +197,7 @@ class OxEngine(BaseGameEngine):
                     (time.time() + 10) if any_switch_available else time.time()
                 )
                 self._commit(os)
-            elif len(os.get("pending_actions", {})) >= len(agents):
+            elif len(pending) >= len(agents):
                 self._advance_phase()
 
         return {"success": True, "message": "제출되었습니다"}
@@ -303,20 +328,22 @@ class OxEngine(BaseGameEngine):
                     ag["total_points"] = ag.get("total_points", 0) + points_each
             os["phase"] = "final_result"
             os["pending_actions"] = {}
-            # 리플레이용 로그: 라운드별 질문·선택·분포·승점
+            # 리플레이용 로그: 라운드별 질문·선택·분포·승점 (+ 코멘트/스위치 여부, 분포 상세)
             choices = [
                 {
                     "agent_id": aid,
                     "first_choice": agents[aid].get("first_choice") or "O",
                     "final_choice": agents[aid].get("final_choice") or "O",
                     "switch_used": agents[aid].get("switch_used", False),
+                    "comment": agents[aid].get("comment", ""),
+                    "total_points_after_round": agents[aid].get("total_points", 0),
                 }
                 for aid in agents
             ]
             os.setdefault("history", []).append({
                 "round": os.get("round", 1),
                 "question": os.get("question"),
-                "distribution": {"O": o_count, "X": x_count},
+                "distribution": {"O": o_count, "X": x_count, "minority": minority, "minority_count": minority_count, "majority_count": majority_count},
                 "minority": minority,
                 "points_awarded": points_each,
                 "choices": choices,

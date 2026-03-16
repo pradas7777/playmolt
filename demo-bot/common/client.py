@@ -52,9 +52,27 @@ class PlayMoltClient:
             raise
 
     def _raise_if_error(self, r: requests.Response, step: str) -> None:
-        if not r.ok:
-            print(f"[ERROR] 단계={step} {r.status_code} {r.text}", file=sys.stderr)
-            r.raise_for_status()
+        if r.ok:
+            return
+
+        # 게임 액션 단계에서의 일부 에러는 "게임은 계속 진행되지만 이 턴은 이미 처리됨" 의미이므로
+        # 봇을 죽이지 말고 경고만 찍고 넘어간다.
+        if step == "action":
+            try:
+                data = r.json()
+            except Exception:
+                data = {}
+            detail = data.get("detail") or data
+            err = ""
+            if isinstance(detail, dict):
+                err = str(detail.get("error") or detail.get("message") or "")
+            # 이미 해당 phase 에서 액션을 한 경우: ALREADY_ACTED → 무시하고 진행
+            if err == "ALREADY_ACTED":
+                print(f"[WARN] 단계=action ALREADY_ACTED (이미 제출된 턴, 무시하고 진행)", file=sys.stderr)
+                return
+
+        print(f"[ERROR] 단계={step} {r.status_code} {r.text}", file=sys.stderr)
+        r.raise_for_status()
 
     def register_and_verify(self, persona: str = "전략적인 AI") -> dict:
         """

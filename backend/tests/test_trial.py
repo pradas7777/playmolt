@@ -265,5 +265,143 @@ def test_trial_invalid_then_fix_action():
             "question": EXAMPLE_JURY_INTERIM_QUESTION,
         },
     )
-    assert good_resp.status_code == 200
-    assert good_resp.json().get("success") is True
+    # 이제는 잘못된 액션이 오면 default_action으로 해당 phase를 채우고,
+    # 동일 phase에서 다시 보내면 ALREADY_ACTED로 막힌다.
+    assert good_resp.status_code == 400
+    payload2 = good_resp.json()
+    err2 = payload2.get("detail") or {}
+    assert err2.get("error") == "ALREADY_ACTED"
+
+
+def test_trial_invalid_juror_action_uses_default_and_advances_phase():
+    """jury_interim에서 한 배심원이 계속 잘못된 액션을 보내도 default_action으로 채워져 phase가 진행되는지 확인."""
+    keys = [_create_bot(f"trial_flow{i}@test.com", f"tf{i}") for i in range(6)]
+    game_id = _join_n_parallel(keys, "trial", 6)
+
+    # opening: 전원 ready
+    for key in keys:
+        _action(key, game_id, {"type": "ready"})
+
+    # argument_1: 검사/변호만 arg1
+    state = _state(keys[0], game_id)
+    case = state.get("case", {})
+    ev_for = case.get("evidence_for") or ["증거"]
+    ev_against = case.get("evidence_against") or ["반증"]
+    for key in get_keys_by_role(keys, game_id, ["PROSECUTOR"]):
+        _action(key, game_id, {"type": "arg1", "evidence_key": ev_for[0], "claim": EXAMPLE_CLAIM_ARG1_PRO})
+    for key in get_keys_by_role(keys, game_id, ["DEFENSE"]):
+        _action(key, game_id, {"type": "arg1", "evidence_key": ev_against[0], "claim": EXAMPLE_CLAIM_ARG1_DEF})
+
+    # jury_interim: 배심원 3명 중 1명은 잘못된 type을 보내서 default_action(jury_interim) 처리,
+    # 나머지 2명이 정상 제출하면 phase가 judge_expand로 넘어가야 한다.
+    state = _state(keys[0], game_id)
+    assert state["phase"] == "jury_interim", state["phase"]
+
+    juror_keys = get_keys_by_role(keys, game_id, ["JUROR"])
+    assert len(juror_keys) == 3
+    bad_juror = juror_keys[0]
+    good_jurors = juror_keys[1:]
+
+    # 잘못된 액션 → 400 + default_action 기록
+    bad_resp = client.post(
+        f"/api/games/{game_id}/action",
+        headers={"X-API-Key": bad_juror},
+        json={"type": "speak", "text": "wrong"},
+    )
+    assert bad_resp.status_code == 400
+
+    # 나머지 2명은 정상 jury_interim 제출
+    for key in good_jurors:
+        resp = client.post(
+            f"/api/games/{game_id}/action",
+            headers={"X-API-Key": key},
+            json={
+                "type": "jury_interim",
+                "verdict": "GUILTY",
+                "reason": EXAMPLE_JURY_INTERIM_REASON,
+                "question": EXAMPLE_JURY_INTERIM_QUESTION,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+
+    # 세 번째 배심원은 default_action(jury_interim)으로 채워져서 judge_expand로 진행되어야 함
+    state_after = _state(keys[0], game_id)
+    assert state_after["phase"] == "judge_expand", state_after["phase"]
+
+    # history에 jury_interim 투표가 3개 쌓였는지 확인
+    jury_hist = [h for h in state_after.get("history", []) if h.get("phase") == "jury_interim"]
+    assert jury_hist
+    votes = jury_hist[-1].get("votes") or []
+    assert len(votes) == 3
+
+
+def test_trial_timeout_applies_default_actions_and_advances_phase():
+    """apply_phase_timeout()으로 미제출자 default_action을 채우고 phase가 진행되는지 확인."""
+    from app.models.game import Game
+    from app.services.game_service import get_engine
+    from sqlalchemy.orm.attributes import flag_modified
+    import time
+
+    keys = [_create_bot(f"trial_to{i}@test.com", f"tto{i}") for i in range(6)]
+    game_id = _join_n_parallel(keys, "trial", 6)
+
+    # opening: 전원 ready → argument_1
+    for key in keys:
+        _action(key, game_id, {"type": "ready"})
+
+    # argument_1: 검사/변호만 arg1 제출 → jury_interim
+    state = _state(keys[0], game_id)
+    case = state.get("case", {})
+    ev_for = case.get("evidence_for") or ["증거"]
+    ev_against = case.get("evidence_against") or ["반증"]
+    for key in get_keys_by_role(keys, game_id, ["PROSECUTOR"]):
+        _action(key, game_id, {"type": "arg1", "evidence_key": ev_for[0], "claim": EXAMPLE_CLAIM_ARG1_PRO})
+    for key in get_keys_by_role(keys, game_id, ["DEFENSE"]):
+        _action(key, game_id, {"type": "arg1", "evidence_key": ev_against[0], "claim": EXAMPLE_CLAIM_ARG1_DEF})
+
+    state = _state(keys[0], game_id)
+    assert state["phase"] == "jury_interim", state["phase"]
+
+    juror_keys = get_keys_by_role(keys, game_id, ["JUROR"])
+    assert len(juror_keys) == 3
+
+    # 배심원 1명만 제출, 나머지 2명은 미제출 상태로 둔다.
+    _action(
+        juror_keys[0],
+        game_id,
+        {
+            "type": "jury_interim",
+            "verdict": "GUILTY",
+            "reason": EXAMPLE_JURY_INTERIM_REASON,
+            "question": EXAMPLE_JURY_INTERIM_QUESTION,
+        },
+    )
+
+    # DB에서 trial_state.phase_started_at을 과거로, phase_timeout_seconds를 2초로 설정
+    db = TestingSession()
+    try:
+        game = db.query(Game).filter_by(id=game_id).first()
+        assert game is not None
+        cfg = dict(game.config or {})
+        cfg["phase_timeout_seconds"] = 2
+        ts = dict(cfg.get("trial_state") or {})
+        ts["phase_started_at"] = time.time() - 3
+        cfg["trial_state"] = ts
+        game.config = cfg
+        flag_modified(game, "config")
+        db.commit()
+        db.refresh(game)
+
+        engine = get_engine(game, db)
+        applied = engine.apply_phase_timeout()
+        assert applied is True, "타임아웃 적용 시 True 반환"
+    finally:
+        db.close()
+
+    # 타임아웃 후에는 나머지 배심원 2명도 default_action(jury_interim)으로 채워져 judge_expand로 진행해야 함
+    state_after = _state(keys[0], game_id)
+    assert state_after["phase"] == "judge_expand", state_after["phase"]
+    jury_hist = [h for h in state_after.get("history", []) if h.get("phase") == "jury_interim"]
+    assert jury_hist
+    votes = jury_hist[-1].get("votes") or []
+    assert len(votes) == 3

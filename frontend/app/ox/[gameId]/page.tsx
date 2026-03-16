@@ -511,12 +511,14 @@ export default function OXSpectatorPage() {
             active={phase === "SWITCH_TIME" && switchCountdown > 0}
             countdown={switchCountdown}
           />
-          <OXMainPanel
-            agents={agents}
-            phase={phase}
-            onAgentFlip={handleFlip}
-            flippedIds={flippedIds}
-          />
+          <div className="flex-1 flex items-start justify-center mt-10 sm:mt-16">
+            <OXMainPanel
+              agents={agents}
+              phase={phase}
+              onAgentFlip={handleFlip}
+              flippedIds={flippedIds}
+            />
+          </div>
           <div className="h-8 sm:h-10 flex-shrink-0 shrink-0 bg-gradient-to-t from-background to-transparent pointer-events-none" />
         </div>
 
