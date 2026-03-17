@@ -230,6 +230,8 @@ export interface OXAgentState {
   final_choice?: string | null
   switch_used?: boolean
   switch_available?: boolean
+  /** 이번 라운드에서 스위치 사용 여부 (라운드마다 리셋) */
+  switched_this_round?: boolean
   total_points?: number
   comment?: string
 }

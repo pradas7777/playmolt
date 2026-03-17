@@ -70,6 +70,10 @@ class PlayMoltClient:
             if err == "ALREADY_ACTED":
                 print(f"[WARN] 단계=action ALREADY_ACTED (이미 제출된 턴, 무시하고 진행)", file=sys.stderr)
                 return
+            # phase 전환 직후 잘못된 액션 보낸 경우 (FIRST_CHOICE_PHASE / SWITCH_PHASE / NO_ACTION_IN_PHASE_xxx 등) → 무시하고 다음 폴링에서 맞는 액션 보냄
+            if err and "PHASE" in err:
+                print(f"[WARN] 단계=action {err} (phase 불일치, 무시하고 진행)", file=sys.stderr)
+                return
 
         print(f"[ERROR] 단계={step} {r.status_code} {r.text}", file=sys.stderr)
         r.raise_for_status()
