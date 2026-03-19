@@ -58,6 +58,7 @@ export function mapOXAgentsToUI(agents: Record<string, OXAgentState & { name?: s
       switched: a.switch_used ?? false,
       /** 이번 턴(라운드)에서만 스위치 사용 — 로그/카드 표시용 */
       switchedThisRound: a.switched_this_round ?? false,
+      comment: (a as OXAgentState & { comment?: string }).comment ?? "",
       points: a.total_points ?? 0,
       persona: "",
     }
@@ -127,6 +128,7 @@ export function getLogEntriesForCurrentRoundFromStep(
     entries.push({ round: r, timestamp: logTimestamp(), text: `질문: ${step.question}`, type: "PHASE" })
   }
   if ((step.phase === "reveal" || step.phase === "switch") && step.agents) {
+    const commentLines: OXLogEntry[] = []
     for (const [id, a] of Object.entries(step.agents)) {
       const choice = a.first_choice ?? a.final_choice ?? "O"
       const name = (a as OXAgentState & { name?: string }).name ?? agentsMeta[id]?.name ?? id
@@ -136,6 +138,19 @@ export function getLogEntriesForCurrentRoundFromStep(
         text: `${name} 처음 선택 ${choice}`,
         type: choice === "O" ? "CHOOSE_O" : "CHOOSE_X",
       })
+      const cmt = (a as OXAgentState & { comment?: string }).comment
+      if (cmt && String(cmt).trim()) {
+        commentLines.push({
+          round: r,
+          timestamp: logTimestamp(),
+          text: `${name}: ${String(cmt).trim()}`,
+          type: "INFO",
+        })
+      }
+    }
+    if (commentLines.length) {
+      entries.push({ round: r, timestamp: logTimestamp(), text: "──────── 코멘트 ────────", type: "INFO" })
+      entries.push(...commentLines)
     }
   }
   return entries
@@ -181,12 +196,14 @@ export function mapOXHistoryToLogs(
     const firstLogs: OXLogEntry[] = []
     const switchLogs: OXLogEntry[] = []
     const finalLogs: OXLogEntry[] = []
+    const commentLogs: OXLogEntry[] = []
 
     for (const c of choices) {
       const name = agentsMeta[c.agent_id]?.name ?? c.agent_id
       const first = c.first_choice ?? "O"
       const final = c.final_choice ?? first
       const switched = !!c.switch_used && first !== final
+      const cmt = (c as { comment?: string }).comment
 
       // 1) 처음 이동/선택 로그
       firstLogs.push({
@@ -195,6 +212,14 @@ export function mapOXHistoryToLogs(
         text: `${name} 처음 선택 ${first}`,
         type: first === "O" ? "CHOOSE_O" : "CHOOSE_X",
       })
+      if (cmt && String(cmt).trim()) {
+        commentLogs.push({
+          round: r,
+          timestamp: logTimestamp(),
+          text: `${name}: ${String(cmt).trim()}`,
+          type: "INFO",
+        })
+      }
 
       // 2) 스위치 사용 여부 로그 (스위치한 경우에만)
       if (switched) {
@@ -224,6 +249,15 @@ export function mapOXHistoryToLogs(
         type: "INFO",
       })
       entries.push(...firstLogs)
+    }
+    if (commentLogs.length) {
+      entries.push({
+        round: r,
+        timestamp: logTimestamp(),
+        text: "──────── 코멘트 ────────",
+        type: "INFO",
+      })
+      entries.push(...commentLogs)
     }
     if (switchLogs.length) {
       entries.push({
@@ -276,6 +310,7 @@ export function buildOXReplaySteps(
         switch_used: false,
         switch_available: !switchUsedByAgent[id],
         total_points: pointsByAgent[id] ?? 0,
+        comment: "",
       }
     }
     steps.push({
@@ -298,6 +333,7 @@ export function buildOXReplaySteps(
         switch_used: false,
         switch_available: !switchUsedByAgent[id],
         total_points: pointsByAgent[id] ?? 0,
+        comment: (c as { comment?: string }).comment ?? "",
       }
     }
     for (const id of agentIds) {
@@ -309,6 +345,7 @@ export function buildOXReplaySteps(
           switch_used: false,
           switch_available: !switchUsedByAgent[id],
           total_points: pointsByAgent[id] ?? 0,
+          comment: "",
         }
       }
     }
@@ -350,6 +387,7 @@ export function buildOXReplaySteps(
         switched_this_round: c.switch_used ?? false,
         switch_available: !switchUsedByAgent[id],
         total_points: pointsByAgent[id] ?? 0,
+        comment: (c as { comment?: string }).comment ?? "",
       }
     }
     for (const id of agentIds) {
@@ -362,6 +400,7 @@ export function buildOXReplaySteps(
           switched_this_round: false,
           switch_available: !switchUsedByAgent[id],
           total_points: pointsByAgent[id] ?? 0,
+          comment: "",
         }
       }
     }

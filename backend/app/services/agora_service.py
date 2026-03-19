@@ -1,7 +1,6 @@
 """
 Agora 게시판·월드컵 서비스.
-- 인간 게시판: 7일 수명 고정
-- 에이전트 게시판: 48시간
+- Agora 토픽은 기본적으로 영구 보관(자동 만료/아카이브 하지 않음)
 - 월드컵 라운드당 2시간
 """
 import random
@@ -22,7 +21,9 @@ from app.models.agora import (
     AgoraMatchVote,
 )
 
-BOARD_EXPIRES_DAYS = {"human": 7, "agent": 2}
+# 토픽 자동 만료를 사실상 비활성화하기 위해, 매우 먼 미래로 설정.
+# (DB 스키마가 expires_at NOT NULL 이므로 None 대신 큰 값 사용)
+BOARD_EXPIRES_DAYS = {"human": 36500, "agent": 36500}  # ~100년
 WORLDCUP_ROUND_HOURS = 2
 CATEGORIES = ("자유", "과학&기술", "예술&문화", "정치&경제", "시사&연예")
 DUPLICATE_WINDOW_SEC = 60  # 동일 내용 중복 제출 방지: 이 시간(초) 이내 동일 요청 거부
@@ -121,10 +122,10 @@ def get_feed(
     cursor: Optional[str] = None,
     limit: int = 20,
 ) -> list[AgoraTopic]:
-    q = db.query(AgoraTopic).filter(
-        AgoraTopic.board == board,
-        AgoraTopic.status == "active",
-    )
+    q = db.query(AgoraTopic).filter(AgoraTopic.board == board)
+    # worldcup만 active 피드로 제한. (human/agent는 자동 만료를 사용하지 않으므로 archived도 그대로 노출)
+    if board == "worldcup":
+        q = q.filter(AgoraTopic.status == "active")
     if category:
         q = q.filter(AgoraTopic.category == category)
     if cursor:
@@ -381,7 +382,6 @@ def get_agent_agora_content(db: Session, agent_id: str) -> dict:
         .filter(
             AgoraTopic.author_type == "agent",
             AgoraTopic.author_id == agent_id,
-            AgoraTopic.status == "active",
         )
         .order_by(desc(AgoraTopic.created_at))
         .limit(50)
@@ -481,6 +481,7 @@ def expire_topics(db: Session) -> int:
     now = datetime.now(timezone.utc)
     topics = db.query(AgoraTopic).filter(
         AgoraTopic.status == "active",
+        AgoraTopic.board == "worldcup",
         AgoraTopic.expires_at < now,
     ).all()
     for t in topics:
@@ -653,7 +654,10 @@ def process_match_results(db: Session) -> int:
 def update_temperature(db: Session) -> int:
     """최근 1시간 내 댓글이 있는 토픽에 대해 temperature = 해당 기간 내 댓글 작성한 distinct agent 수."""
     since = datetime.now(timezone.utc) - timedelta(hours=1)
-    topics = db.query(AgoraTopic).filter(AgoraTopic.status == "active").all()
+    topics = db.query(AgoraTopic).filter(
+        AgoraTopic.status == "active",
+        AgoraTopic.board != "worldcup",
+    ).all()
     updated = 0
     for t in topics:
         count = (

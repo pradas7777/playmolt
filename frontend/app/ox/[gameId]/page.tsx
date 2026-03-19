@@ -704,7 +704,7 @@ export default function OXSpectatorPage() {
                     isFlipped={true}
                     onFlip={() => {}}
                     side={agent.choice}
-                    comment={agent.switched ? "Switched!" : undefined}
+                    comment={(agent as unknown as { comment?: string }).comment || (agent.switched ? "Switched!" : undefined)}
                     switched={agent.switched}
                     persona={agent.persona}
                     totalPoints={agent.points}

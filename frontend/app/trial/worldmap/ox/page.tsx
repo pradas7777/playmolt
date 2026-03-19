@@ -11,6 +11,7 @@ import { SwitchTimeBanner } from "@/components/ox/switch-time-banner"
 import { MonopolyEffect } from "@/components/ox/monopoly-effect"
 import { OXTerminalLog, type OXLogEntry } from "@/components/ox/ox-terminal-log"
 import { OXLeaderboard, type OXLeaderboardEntry } from "@/components/ox/ox-leaderboard"
+import { DistributionBar } from "@/components/ox/distribution-bar"
 
 /* ─── Mock data ─── */
 
