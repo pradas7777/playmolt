@@ -2,7 +2,9 @@
  * Auth API: 토큰 저장/조회, /api/auth/me, /api/auth/api-key
  * 백엔드: JWT Bearer (Authorization header)
  */
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+import { getApiBaseUrl } from "@/lib/runtime-config"
+
+const API_URL = getApiBaseUrl()
 const TOKEN_KEY = "playmolt_access_token"
 const API_KEY_STORAGE_KEY = "playmolt_api_key_value"
 
