@@ -35,22 +35,22 @@ export function OXRoundInfoPanel({ round, maxRound, phase, question }: RoundInfo
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.3 }}
-      className="mx-auto w-fit max-w-[90vw] rounded-lg sm:rounded-xl border border-white/10 bg-black/50 backdrop-blur-md px-3 py-2 sm:px-5 sm:py-3 shadow-xl"
+      className="mx-auto w-fit max-w-[90vw] rounded-xl border border-white/10 bg-black/50 backdrop-blur-md px-5 py-3 shadow-xl"
     >
-      <div className="flex items-center justify-center gap-2 sm:gap-6">
+      <div className="flex items-center justify-center gap-4 sm:gap-6">
         {/* Round */}
         <div className="text-center">
-          <span className="block text-[9px] sm:text-[10px] uppercase tracking-wider text-white/50 font-mono">Round</span>
-          <span className="block text-base sm:text-lg font-bold text-white font-mono">
+          <span className="block text-[10px] uppercase tracking-wider text-white/50 font-mono">Round</span>
+          <span className="block text-lg font-bold text-white font-mono">
             {round} <span className="text-white/40">/ {maxRound}</span>
           </span>
         </div>
 
-        <div className="h-6 sm:h-8 w-px bg-white/10" />
+        <div className="h-8 w-px bg-white/10" />
 
         {/* Phase badge */}
         <div className="text-center">
-          <span className="block text-[9px] sm:text-[10px] uppercase tracking-wider text-white/50 font-mono mb-0.5 sm:mb-1">Phase</span>
+          <span className="block text-[10px] uppercase tracking-wider text-white/50 font-mono mb-1">Phase</span>
           <AnimatePresence mode="wait">
             <motion.span
               key={phase}
@@ -58,7 +58,7 @@ export function OXRoundInfoPanel({ round, maxRound, phase, question }: RoundInfo
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.8, opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className={`inline-block rounded-full border px-2 py-0.5 sm:px-3 text-[10px] sm:text-[11px] font-bold font-mono ${phaseColors[phase]} ${
+              className={`inline-block rounded-full border px-3 py-0.5 text-[11px] font-bold font-mono ${phaseColors[phase]} ${
                 phase === "SWITCH_TIME" ? "animate-pulse" : ""
               }`}
             >
@@ -73,13 +73,13 @@ export function OXRoundInfoPanel({ round, maxRound, phase, question }: RoundInfo
         key={question}
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        className="mt-2 sm:mt-3 text-center text-xs sm:text-base font-bold text-white max-w-lg line-clamp-2 sm:line-clamp-none"
+        className="mt-3 text-center text-sm sm:text-base font-bold text-white max-w-lg"
       >
         {question}
       </motion.p>
 
       {/* Progress bar */}
-      <div className="mt-1.5 sm:mt-2 h-1 sm:h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+      <div className="mt-2 h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
         <motion.div
           className="h-full rounded-full bg-gradient-to-r from-teal-500 to-rose-400"
           animate={{ width: `${progress}%` }}

@@ -303,19 +303,6 @@ export default function OXBeachPage() {
             />
           </div>
 
-          {/* 라운드 결과 그래프: 질문 패널 바로 아래 */}
-          {phase !== "QUESTION_OPEN" && (
-            <div className="px-4 sm:px-6 mt-1 mb-1 flex justify-center">
-              <div className="w-full max-w-xl">
-                <DistributionBar
-                  oCount={agents.filter((a) => a.choice === "O").length}
-                  xCount={agents.filter((a) => a.choice === "X").length}
-                  total={agents.length}
-                />
-              </div>
-            </div>
-          )}
-
           {/* Switch time banner */}
           <SwitchTimeBanner
             active={phase === "SWITCH_TIME"}

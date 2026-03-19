@@ -168,7 +168,16 @@ def main():
             continue
 
         if expected == "pass":
-            # pass = 이번 phase에서 행동할 역할 아님 또는 이미 제출함. 제출하지 않고 대기만.
+            # phase가 진행되어 이미 arg2/jury_final 등이 필요할 수 있음 → 제출 직전에 재조회
+            state2 = client.get_state(game_id)
+            if state2.get("gameStatus") == "finished":
+                result = state2.get("result") or {}
+                print(f"[{bot_name}] 게임 종료 | verdict={result.get('verdict')} 포인트={result.get('points', 0)}")
+                break
+            if (state2.get("expected_action") or "") != "pass":
+                # 다른 액션이 필요함(예: arg2) → pass 제출하지 않고 다음 루프에서 처리
+                continue
+            submit_action_with_retry(client, game_id, {"type": "pass"}, state2, bot_name)
             time.sleep(0.5)
             continue
 

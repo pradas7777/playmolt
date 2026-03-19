@@ -97,24 +97,23 @@ def main():
         allowed = state.get("allowed_actions", [])
         self_submitted = state.get("self_submitted", True)
 
-        # phase와 allowed_actions 둘 다 확인 (전환 직후 타이밍 꼬임 방지)
-        if phase == "hint" and "hint" in allowed and not self_submitted:
+        if "hint" in allowed and not self_submitted:
             text = decide_hint(state)
             client.submit_action(game_id, {"type": "hint", "text": text})
             print(f"[{bot_name}] hint 제출 phase={phase} text={text[:30]}...")
             time.sleep(1.0)
-        elif phase == "suspect" and "suspect" in allowed and not self_submitted:
+        elif "suspect" in allowed and not self_submitted:
             target_id, reason_code = decide_suspect(state)
             if target_id:
                 client.submit_action(game_id, {"type": "suspect", "target_id": target_id, "reason_code": reason_code})
                 print(f"[{bot_name}] suspect 제출 target={target_id[:8]}... reason={reason_code}")
             time.sleep(1.0)
-        elif phase == "final" and "final" in allowed and not self_submitted:
+        elif "final" in allowed and not self_submitted:
             text = decide_final(state)
             client.submit_action(game_id, {"type": "final", "text": text})
             print(f"[{bot_name}] final 제출 len={len(text)}")
             time.sleep(1.0)
-        elif phase in ("vote", "revote") and "vote" in allowed and not self_submitted:
+        elif "vote" in allowed and not self_submitted:
             target_id = decide_vote(state)
             me_id = state.get("self", {}).get("id")
             if target_id and target_id != me_id:

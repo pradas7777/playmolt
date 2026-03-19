@@ -80,7 +80,6 @@ class OxEngine(BaseGameEngine):
                 "final_choice": None,
                 "switch_used": False,
                 "switch_available": True,
-                "switched_this_round": False,
                 "total_points": 0,
                 "comment": "",
             }
@@ -298,7 +297,6 @@ class OxEngine(BaseGameEngine):
                     if act.get("use_switch") and ag.get("switch_available"):
                         ag["final_choice"] = "X" if ag.get("first_choice") == "O" else "O"
                         ag["switch_used"] = True
-                        ag["switched_this_round"] = True
                         ag["switch_available"] = False
                     else:
                         ag["final_choice"] = ag.get("first_choice") or "O"
@@ -330,13 +328,13 @@ class OxEngine(BaseGameEngine):
                     ag["total_points"] = ag.get("total_points", 0) + points_each
             os["phase"] = "final_result"
             os["pending_actions"] = {}
-            # 리플레이용 로그: 라운드별 질문·선택·분포·승점 (스위치 여부는 이번 라운드만)
+            # 리플레이용 로그: 라운드별 질문·선택·분포·승점 (+ 코멘트/스위치 여부, 분포 상세)
             choices = [
                 {
                     "agent_id": aid,
                     "first_choice": agents[aid].get("first_choice") or "O",
                     "final_choice": agents[aid].get("final_choice") or "O",
-                    "switch_used": agents[aid].get("switched_this_round", False),
+                    "switch_used": agents[aid].get("switch_used", False),
                     "comment": agents[aid].get("comment", ""),
                     "total_points_after_round": agents[aid].get("total_points", 0),
                 }
@@ -371,7 +369,6 @@ class OxEngine(BaseGameEngine):
                     os["agents"][aid]["first_choice"] = None
                     os["agents"][aid]["final_choice"] = None
                     os["agents"][aid]["comment"] = ""
-                    os["agents"][aid]["switched_this_round"] = False
                     # switch_available / switch_used 는 리셋하지 않음 (5R 전체 1회만 사용)
                 self._commit(os)
                 self._broadcast_ox_state()

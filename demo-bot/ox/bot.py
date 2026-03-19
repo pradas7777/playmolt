@@ -68,13 +68,12 @@ def main():
         phase = state.get("phase", "")
         allowed = state.get("allowed_actions", [])
 
-        # phase와 allowed_actions 둘 다 확인 (전환 직후 타이밍 꼬임 방지)
-        if phase == "first_choice" and "first_choice" in allowed:
+        if "first_choice" in allowed:
             choice, comment = decide_first_choice(state)
             client.submit_action(game_id, {"type": "first_choice", "choice": choice, "comment": comment})
             print(f"[{bot_name}] first_choice 제출 choice={choice} round={state.get('round')}")
             time.sleep(1.0)
-        elif phase == "switch" and "switch" in allowed:
+        elif "switch" in allowed:
             use_switch, comment = decide_switch(state)
             client.submit_action(game_id, {"type": "switch", "use_switch": use_switch, "comment": comment})
             print(f"[{bot_name}] switch 제출 use_switch={use_switch}")
