@@ -76,20 +76,20 @@ export function CaseInfoPanel({
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.3 }}
-      className="mx-auto w-full max-w-[700px] rounded-xl border border-white/10 bg-black/50 backdrop-blur-md px-5 py-3 shadow-xl"
+      className="mx-auto w-full max-w-[700px] rounded-lg sm:rounded-xl border border-white/10 bg-black/50 backdrop-blur-md px-3 py-2 sm:px-5 sm:py-3 shadow-xl"
     >
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-2 sm:gap-4">
         <div className="flex-1 min-w-0">
-          <h2 className="text-base sm:text-lg font-bold text-white truncate text-balance">
+          <h2 className="text-sm sm:text-lg font-bold text-white truncate text-balance">
             {caseTitle}
           </h2>
-          <p className="text-[11px] sm:text-xs text-white/50 mt-0.5 line-clamp-2 leading-relaxed">
+          <p className="text-[10px] sm:text-xs text-white/50 mt-0.5 line-clamp-1 sm:line-clamp-2 leading-relaxed">
             {caseDescription}
           </p>
         </div>
 
         <div className="shrink-0 text-center">
-          <span className="block text-[9px] uppercase tracking-wider text-white/40 font-mono mb-1">Phase</span>
+          <span className="block text-[8px] sm:text-[9px] uppercase tracking-wider text-white/40 font-mono mb-0.5 sm:mb-1">Phase</span>
           <AnimatePresence mode="wait">
             <motion.span
               key={phase}
@@ -97,7 +97,7 @@ export function CaseInfoPanel({
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.8, opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className={`inline-block rounded-full border px-3 py-0.5 text-[10px] font-bold font-mono ${phaseColor} ${
+              className={`inline-block rounded-full border px-2 py-0.5 sm:px-3 text-[9px] sm:text-[10px] font-bold font-mono ${phaseColor} ${
                 phase === "VERDICT" || phase === "JURY_FINAL" ? "animate-pulse" : ""
               }`}
             >
@@ -107,16 +107,16 @@ export function CaseInfoPanel({
         </div>
       </div>
 
-      <div className="flex items-center justify-center gap-0.5 mt-3 flex-wrap">
+      <div className="flex items-center justify-center gap-0.5 mt-2 sm:mt-3 flex-wrap">
         {PHASE_ORDER.map((p, i) => (
           <motion.div
             key={p}
-            className={`h-1.5 rounded-full transition-all duration-300 shrink-0 ${
+            className={`h-1 sm:h-1.5 rounded-full transition-all duration-300 shrink-0 ${
               i < currentIdx
-                ? "bg-white/40 w-2"
+                ? "bg-white/40 w-1.5 sm:w-2"
                 : i === currentIdx
-                  ? "bg-white w-3"
-                  : "bg-white/15 w-1.5"
+                  ? "bg-white w-2 sm:w-3"
+                  : "bg-white/15 w-1 sm:w-1.5"
             }`}
             animate={i === currentIdx ? { scale: [1, 1.2, 1] } : {}}
             transition={{ duration: 1.5, repeat: Infinity }}
@@ -124,7 +124,7 @@ export function CaseInfoPanel({
         ))}
       </div>
 
-      <div className="mt-2 h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+      <div className="mt-1.5 sm:mt-2 h-1 sm:h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
         <motion.div
           className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-400"
           animate={{ width: `${progress}%` }}

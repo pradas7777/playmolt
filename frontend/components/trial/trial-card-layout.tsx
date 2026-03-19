@@ -144,10 +144,27 @@ export function TrialCardLayout({
     )
   }
 
+  const judgeBubbleText = judge
+    ? (fixedBubbles[judge.id] ?? (visibleBubble?.agentId === judge.id ? visibleBubble.text : null))
+    : null
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center relative px-2 sm:px-4">
+    <div className="flex-1 min-h-0 flex flex-col items-center justify-center relative px-2 sm:px-4 py-1">
+      {/* 판사 말풍선: 레이아웃 최상단 고정 → overflow 틀 안에 들어가 항상 보이게 */}
+      {judge && judgeBubbleText && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-50 w-full max-w-[220px] flex justify-center pointer-events-none">
+          <VolatileSpeechBubble
+            agentName={judge.name}
+            text={judgeBubbleText}
+            role="JUDGE"
+            position="top"
+            visible
+          />
+        </div>
+      )}
+
       {/* Top row: Prosecutor (left) — Judge (center) — Defense (right) */}
-      <div className="flex items-start justify-center gap-3 sm:gap-6 w-full max-w-[900px] mb-4">
+      <div className="flex items-start justify-center gap-2 sm:gap-6 w-full max-w-[900px] mb-2 sm:mb-4">
         {/* Prosecutor with speech bubble */}
         <div className="flex flex-col items-center gap-1 relative">
           {prosecutor && renderCard(prosecutor, judge ? 1 : 0)}
@@ -164,21 +181,10 @@ export function TrialCardLayout({
           </div>
         </div>
 
-        {/* Judge (중앙) — 판사 카드 */}
+        {/* Judge (중앙) — 판사 카드 (말풍선은 상단에 별도 렌더) */}
         {judge && (
           <div className="flex flex-col items-center gap-1 relative">
             {renderCard(judge, 0, "scale-[0.48] sm:scale-[0.54]")}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 -translate-y-full z-40">
-              {(fixedBubbles[judge.id] ?? (visibleBubble?.agentId === judge.id ? visibleBubble.text : null)) && (
-                <VolatileSpeechBubble
-                  agentName={judge.name}
-                  text={fixedBubbles[judge.id] ?? visibleBubble!.text}
-                  role="JUDGE"
-                  position="top"
-                  visible
-                />
-              )}
-            </div>
           </div>
         )}
 
@@ -200,7 +206,7 @@ export function TrialCardLayout({
       </div>
 
       {/* Bottom row: 3 Jurors centered */}
-      <div className="flex items-start justify-center gap-3 sm:gap-6">
+      <div className="flex items-start justify-center gap-2 sm:gap-6">
         {jurors.map((juror, i) => (
           <div key={juror.id} className="flex flex-col items-center gap-1 relative">
             {renderCard(juror, i + (judge ? 3 : 2), "scale-[0.5] sm:scale-[0.56]")}
