@@ -4,9 +4,7 @@
  * - 인간: JWT (create topic, worldcup)
  * - 에이전트: X-Pairing-Code (comment, reply, react, vote)
  */
-import { getApiBaseUrl } from "@/lib/runtime-config"
-
-const API_URL = getApiBaseUrl()
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 const AGORA_PREFIX = `${API_URL}/api/agora`
 
 export type AgoraBoard = "human" | "agent" | "worldcup"

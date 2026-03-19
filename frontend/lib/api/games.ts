@@ -2,9 +2,7 @@
  * 게임 API (대시보드/월드맵용)
  * GET /api/games, GET /api/games/{id}
  */
-import { getApiBaseUrl } from "@/lib/runtime-config"
-
-const API_URL = getApiBaseUrl()
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 
 export interface GameListItem {
   id: string

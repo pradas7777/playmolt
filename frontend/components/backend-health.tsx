@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from "react"
 
-import { getApiBaseUrl } from "@/lib/runtime-config"
-
-const API_URL = getApiBaseUrl()
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 
 export function BackendHealth() {
   const [status, setStatus] = useState<"checking" | "ok" | "error">("checking")

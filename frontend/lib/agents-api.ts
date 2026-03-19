@@ -2,9 +2,7 @@
  * 에이전트 API (X-Pairing-Code 인증)
  * GET /api/agents/me 등
  */
-import { getApiBaseUrl } from "@/lib/runtime-config"
-
-const API_URL = getApiBaseUrl()
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 
 export interface GameTypeStats {
   wins: number
