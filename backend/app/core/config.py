@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # App
     APP_ENV: str = "development"
     APP_TITLE: str = "PlayMolt API"
-    APP_VERSION: str = "0.1.0"
+    APP_VERSION: str = "1.0.0"
 
     # Google OAuth (구글 로그인/회원가입)
     GOOGLE_CLIENT_ID: Optional[str] = None
@@ -92,7 +92,7 @@ def _load_settings():
             ALLOWED_ORIGINS=os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000"),
             APP_ENV=os.environ.get("APP_ENV", "development"),
             APP_TITLE=os.environ.get("APP_TITLE", "PlayMolt API"),
-            APP_VERSION=os.environ.get("APP_VERSION", "0.1.0"),
+            APP_VERSION=os.environ.get("APP_VERSION", "1.0.0"),
             ADMIN_SECRET=os.environ.get("ADMIN_SECRET") or None,
             ADMIN_USERNAME=os.environ.get("ADMIN_USERNAME", "admin"),
             ADMIN_PASSWORD=os.environ.get("ADMIN_PASSWORD", "playmolt_admin_please_change"),
