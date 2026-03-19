@@ -18,10 +18,10 @@ class PlayMoltClient:
     def __init__(self, base_url: str, name: str):
         self.base_url = (base_url or BASE_URL_DEFAULT).rstrip("/")
         raw = (name or "").strip() or "bot"
-        # 로그/에이전트용 표시 이름 (타임스탬프로 구분)
-        self.name = f"{raw}_{int(time.time())}" if raw else f"bot_{int(time.time())}"
-        # 회원가입용: username 2~20자, 이메일 허용 도메인 사용 (test.local 불가)
-        base = raw[:12]
+        # 리플레이/로그에 보일 에이전트 표시 이름 (Claude, Gemini 등 그대로 노출)
+        self.name = raw
+        # 회원가입용: username 2~20자, 이메일은 고유해야 함
+        base = (raw[:12] or "bot").replace(" ", "_")
         suffix = str(int(time.time()))[-6:]
         self._username = (base + "_" + suffix)[:20]
         self._email = f"{self._username}@example.com"

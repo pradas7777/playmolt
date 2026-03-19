@@ -243,7 +243,15 @@ export interface OXHistoryEntry {
   distribution?: { O: number; X: number }
   minority?: string | null
   points_awarded?: number
-  choices?: { agent_id: string; first_choice?: string; final_choice?: string; switch_used?: boolean }[]
+  choices?: {
+    agent_id: string
+    first_choice?: string
+    final_choice?: string
+    switch_used?: boolean
+    /** 백엔드가 기록하는 코멘트(봇/유저가 first_choice/switch에 보낸 comment) */
+    comment?: string
+    total_points_after_round?: number
+  }[]
 }
 
 export interface BattleState {
