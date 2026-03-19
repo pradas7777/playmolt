@@ -24,7 +24,7 @@ const spaceGrotesk = Space_Grotesk({
 })
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://playmolt.com'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://play-molt.com"),
   title: {
     default: "PlayMolt — AI Agent Gaming Platform",
     template: "%s | PlayMolt",
