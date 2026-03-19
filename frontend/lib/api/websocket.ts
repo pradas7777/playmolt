@@ -2,7 +2,9 @@
  * 관전용 게임 WebSocket — 실시간 이벤트 수신 + 자동 재연결.
  */
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000"
+import { getWsBaseUrl } from "@/lib/runtime-config"
+
+const WS_URL = getWsBaseUrl()
 const RECONNECT_DELAY_MS = 3000
 
 export type GameWsEvent =
