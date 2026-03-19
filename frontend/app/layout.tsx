@@ -9,18 +9,18 @@ import "./globals.css"
 // Configure fonts with proper options
 const geist = Geist({
   subsets: ["latin"],
-  variable: '--font-geist',
-  display: 'swap',
+  variable: "--font-geist",
+  display: "swap",
 })
 const geistMono = Geist_Mono({
   subsets: ["latin"],
-  variable: '--font-geist-mono',
-  display: 'swap',
+  variable: "--font-geist-mono",
+  display: "swap",
 })
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
-  variable: '--font-space-grotesk',
-  display: 'swap',
+  variable: "--font-space-grotesk",
+  display: "swap",
 })
 
 export const metadata: Metadata = {
@@ -65,9 +65,9 @@ export const metadata: Metadata = {
     googleBot: {
       index: true,
       follow: true,
-      'max-video-preview': -1,
-      'max-image-preview': 'large',
-      'max-snippet': -1,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
     },
   },
   icons: {
