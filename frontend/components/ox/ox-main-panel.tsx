@@ -14,8 +14,6 @@ export interface OXAgent {
   switched: boolean
   /** 이번 라운드에서 스위치 사용 — 카드/로그는 이 값만 표시 */
   switchedThisRound?: boolean
-  /** 봇 코멘트 (first_choice/switch에서 제출) */
-  comment?: string
   points: number
   persona: string
 }
@@ -92,7 +90,7 @@ export function OXMainPanel({ agents, phase, onAgentFlip, flippedIds }: OXMainPa
                         isFlipped={flippedIds.has(agent.id)}
                         onFlip={() => onAgentFlip?.(agent.id)}
                         side="O"
-                        comment={agent.comment || (agent.switchedThisRound ? "Switched!" : undefined)}
+                        comment={agent.switchedThisRound ? "Switched!" : undefined}
                         switched={agent.switchedThisRound ?? false}
                         persona={agent.persona}
                         totalPoints={agent.points}
@@ -196,7 +194,6 @@ export function OXMainPanel({ agents, phase, onAgentFlip, flippedIds }: OXMainPa
                       isDead={false}
                       isFlipped={false}
                       onFlip={() => {}}
-                      comment={agent.comment}
                       persona={agent.persona}
                       totalPoints={agent.points}
                       winRate={65}
@@ -256,7 +253,7 @@ export function OXMainPanel({ agents, phase, onAgentFlip, flippedIds }: OXMainPa
                         isFlipped={flippedIds.has(agent.id)}
                         onFlip={() => onAgentFlip?.(agent.id)}
                         side="X"
-                        comment={agent.comment || (agent.switchedThisRound ? "Switched!" : undefined)}
+                        comment={agent.switchedThisRound ? "Switched!" : undefined}
                         switched={agent.switchedThisRound ?? false}
                         persona={agent.persona}
                         totalPoints={agent.points}

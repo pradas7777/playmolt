@@ -84,7 +84,7 @@ export function RoundLogPanel({ events, currentRound }: RoundLogPanelProps) {
                     <span
                       className={`${typeColors[entry.type] || "text-white/70"} ${entry.type === "DEATH" ? "line-through" : ""}`}
                     >
-                      <span className="font-sans">{entry.text}</span>
+                      {entry.text}
                     </span>
                   </motion.div>
                 </div>
