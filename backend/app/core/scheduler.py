@@ -130,7 +130,17 @@ def start_scheduler():
     scheduler.add_job(_run_update_temperature, "interval", hours=1, id="agora_update_temperature")
     scheduler.add_job(_run_check_inactive_agents, "interval", minutes=30, id="heartbeat_check_inactive")
     scheduler.add_job(_run_phase_timeout, "interval", seconds=10, id="game_phase_timeout")
-    scheduler.add_job(_run_ox_switch_advance, "interval", seconds=1, id="ox_switch_advance")
+    # 1초 주기에서 작업이 1초를 넘기면 max_instances=1에 걸려 "skipped" 로그가 반복될 수 있음.
+    # coalesce로 밀린 실행을 합치고, 주기를 살짝 늘려 부하/로그를 줄인다.
+    scheduler.add_job(
+        _run_ox_switch_advance,
+        "interval",
+        seconds=2,
+        id="ox_switch_advance",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=2,
+    )
     scheduler.start()
     logger.info("agora scheduler started")
 
