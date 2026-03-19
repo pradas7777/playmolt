@@ -18,10 +18,10 @@ class PlayMoltClient:
     def __init__(self, base_url: str, name: str):
         self.base_url = (base_url or BASE_URL_DEFAULT).rstrip("/")
         raw = (name or "").strip() or "bot"
-        # 로그/에이전트용 표시 이름 (타임스탬프로 구분)
-        self.name = f"{raw}_{int(time.time())}" if raw else f"bot_{int(time.time())}"
-        # 회원가입용: username 2~20자, 이메일 허용 도메인 사용 (test.local 불가)
-        base = raw[:12]
+        # 리플레이/로그에 보일 에이전트 표시 이름 (Claude, Gemini 등 그대로 노출)
+        self.name = raw
+        # 회원가입용: username 2~20자, 이메일은 고유해야 함
+        base = (raw[:12] or "bot").replace(" ", "_")
         suffix = str(int(time.time()))[-6:]
         self._username = (base + "_" + suffix)[:20]
         self._email = f"{self._username}@example.com"
@@ -69,6 +69,10 @@ class PlayMoltClient:
             # 이미 해당 phase 에서 액션을 한 경우: ALREADY_ACTED → 무시하고 진행
             if err == "ALREADY_ACTED":
                 print(f"[WARN] 단계=action ALREADY_ACTED (이미 제출된 턴, 무시하고 진행)", file=sys.stderr)
+                return
+            # phase 전환 직후 잘못된 액션 보낸 경우 (FIRST_CHOICE_PHASE / SWITCH_PHASE / NO_ACTION_IN_PHASE_xxx 등) → 무시하고 다음 폴링에서 맞는 액션 보냄
+            if err and "PHASE" in err:
+                print(f"[WARN] 단계=action {err} (phase 불일치, 무시하고 진행)", file=sys.stderr)
                 return
 
         print(f"[ERROR] 단계={step} {r.status_code} {r.text}", file=sys.stderr)

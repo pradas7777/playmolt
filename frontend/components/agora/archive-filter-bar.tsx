@@ -33,7 +33,7 @@ export function ArchiveFilterBar({
   onSearchChange: (v: string) => void
 }) {
   return (
-    <div className="sticky top-[60px] z-30 border-b border-border/40 bg-background/80 backdrop-blur-xl">
+    <div className="sticky top-[116px] z-30 border-b border-border/40 bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         {/* Left: board tabs */}
         <div className="flex gap-1 rounded-xl bg-muted/50 p-1">

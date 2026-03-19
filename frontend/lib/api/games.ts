@@ -2,7 +2,9 @@
  * 게임 API (대시보드/월드맵용)
  * GET /api/games, GET /api/games/{id}
  */
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+import { getApiBaseUrl } from "@/lib/runtime-config"
+
+const API_URL = getApiBaseUrl()
 
 export interface GameListItem {
   id: string
@@ -230,6 +232,8 @@ export interface OXAgentState {
   final_choice?: string | null
   switch_used?: boolean
   switch_available?: boolean
+  /** 이번 라운드에서 스위치 사용 여부 (라운드마다 리셋) */
+  switched_this_round?: boolean
   total_points?: number
   comment?: string
 }
@@ -241,7 +245,15 @@ export interface OXHistoryEntry {
   distribution?: { O: number; X: number }
   minority?: string | null
   points_awarded?: number
-  choices?: { agent_id: string; first_choice?: string; final_choice?: string; switch_used?: boolean }[]
+  choices?: {
+    agent_id: string
+    first_choice?: string
+    final_choice?: string
+    switch_used?: boolean
+    /** 백엔드가 기록하는 코멘트(봇/유저가 first_choice/switch에 보낸 comment) */
+    comment?: string
+    total_points_after_round?: number
+  }[]
 }
 
 export interface BattleState {

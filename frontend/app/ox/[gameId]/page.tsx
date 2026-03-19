@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
-import { motion } from "motion/react"
+import { motion, AnimatePresence } from "motion/react"
 import Image from "next/image"
+import { AgentCard } from "@/components/agent-card/agent-card"
 import { GameBackToWorldmap } from "@/components/game/game-back-to-worldmap"
 import { OXRoundInfoPanel, type OXPhase } from "@/components/ox/round-info-panel"
 import { OXMainPanel, type OXAgent } from "@/components/ox/ox-main-panel"
@@ -12,7 +13,7 @@ import { MonopolyEffect } from "@/components/ox/monopoly-effect"
 import { OXTerminalLog, type OXLogEntry } from "@/components/ox/ox-terminal-log"
 import { getSpectatorState, getGameLogs, type OXState, type SpectatorStateResponse } from "@/lib/api/games"
 import { GameWebSocket } from "@/lib/api/websocket"
-import { mapOXStateToUI, mapOXHistoryToLogs, buildOXReplaySteps } from "@/lib/game/oxMapper"
+import { mapOXStateToUI, mapOXHistoryToLogs, buildOXReplaySteps, getLogEntriesForCurrentRoundFromStep } from "@/lib/game/oxMapper"
 import { OXEventQueue } from "@/lib/game/oxEventQueue"
 import type { OXQueueItem } from "@/lib/game/oxEventQueue"
 import { DistributionBar } from "@/components/ox/distribution-bar"
@@ -45,6 +46,7 @@ export default function OXSpectatorPage() {
   const [agents, setAgents] = useState<OXAgent[]>([])
   const [logs, setLogs] = useState<OXLogEntry[]>([])
   const [flippedIds, setFlippedIds] = useState<Set<string>>(new Set())
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
   const [phaseStartedAt, setPhaseStartedAt] = useState<number | null>(null)
   const [switchCountdown, setSwitchCountdown] = useState(0)
   const [gameOver, setGameOver] = useState(false)
@@ -85,6 +87,10 @@ export default function OXSpectatorPage() {
   const handleMonopolyRef = useRef<(name: string, pts: number) => void>(() => {})
   const [, setQueueTick] = useState(0)
   agentsRef.current = agents
+  // history가 몇 건까지 로그로 반영되었는지 추적 (라운드별 로그를 채팅처럼 누적하기 위함)
+  const lastHistoryLenRef = useRef(0)
+  // 리플레이에서 진행/되감기 구분: 진행 시에는 기존 로그 유지하고 아래에만 추가
+  const lastReplayStepIndexRef = useRef(-1)
 
   const applyOXState = useCallback(
     (
@@ -100,7 +106,46 @@ export default function OXSpectatorPage() {
       setAgents(ui.agents)
       setPhaseStartedAt(ui.phaseStartedAt)
       if (os.history?.length && agentsMeta) {
-        setLogs(mapOXHistoryToLogs(os.history, agentsMeta))
+        // 새로 추가된 history 항목에 대해서만 로그를 append (기존 로그는 유지)
+        const all = os.history as import("@/lib/api/games").OXHistoryEntry[]
+        const prevLen = lastHistoryLenRef.current
+        const newLen = all.length
+        if (newLen > prevLen) {
+          const newlyAdded = all.slice(prevLen)
+          const newLogs = mapOXHistoryToLogs(newlyAdded, agentsMeta)
+          lastHistoryLenRef.current = newLen
+          if (newLogs.length) {
+            setLogs((prev) => {
+              const prevHasQuestionForRound = (r: number) =>
+                prev.some((p) => p.type === "PHASE" && p.text.startsWith("질문:") && p.round === r)
+              const prevHasFirstChoiceForRound = (r: number) =>
+                prev.some(
+                  (p) =>
+                    (p.type === "CHOOSE_O" || p.type === "CHOOSE_X") &&
+                    p.text.includes("처음 선택") &&
+                    p.round === r
+                )
+              const toAppend = newLogs.filter((e) => {
+                if (e.type === "PHASE" && e.text.startsWith("질문:") && prevHasQuestionForRound(e.round))
+                  return false
+                if (
+                  e.type === "INFO" &&
+                  e.text === "──────── 처음 선택 ────────" &&
+                  prevHasFirstChoiceForRound(e.round)
+                )
+                  return false
+                if (
+                  (e.type === "CHOOSE_O" || e.type === "CHOOSE_X") &&
+                  e.text.includes("처음 선택") &&
+                  prevHasFirstChoiceForRound(e.round)
+                )
+                  return false
+                return true
+              })
+              return [...prev, ...toAppend]
+            })
+          }
+        }
       }
       if (os.phase === "final_result" && os.history?.length) {
         const last = os.history[os.history.length - 1] as {
@@ -150,8 +195,16 @@ export default function OXSpectatorPage() {
       setReplayStepIndex(0)
       setGameOver(false)
       setReplayMode(true)
+      lastReplayStepIndexRef.current = -1
       applyOXState(steps[0], meta, handleMonopoly)
-      setLogs(mapOXHistoryToLogs(steps[0].history, meta))
+      const fromHistory0 = mapOXHistoryToLogs(steps[0].history, meta)
+      const forCurrent0 =
+        steps[0].phase !== "final_result"
+          ? getLogEntriesForCurrentRoundFromStep(steps[0], meta)
+          : []
+      // 리플레이 시작 시점: steps[0].history 전체를 기반으로 초기 로그 세팅
+      lastHistoryLenRef.current = steps[0].history?.length ?? 0
+      setLogs([...fromHistory0, ...forCurrent0])
     } catch (e) {
       console.error("[OX Replay] 로그 로드 실패", e)
     }
@@ -164,10 +217,18 @@ export default function OXSpectatorPage() {
     setReplayStepIndex((i) => Math.min(replaySteps.length - 1, i + 1))
   }, [replaySteps.length])
   const handleReplayRestart = useCallback(() => {
+    lastReplayStepIndexRef.current = -1
     setReplayStepIndex(0)
     if (replaySteps[0]) {
-      applyOXState(replaySteps[0], replayAgentsMeta, handleMonopoly)
-      setLogs(mapOXHistoryToLogs(replaySteps[0].history, replayAgentsMeta))
+      const step0 = replaySteps[0]
+      applyOXState(step0, replayAgentsMeta, handleMonopoly)
+      const fromHistory0 = mapOXHistoryToLogs(step0.history, replayAgentsMeta)
+      const forCurrent0 =
+        step0.phase !== "final_result"
+          ? getLogEntriesForCurrentRoundFromStep(step0, replayAgentsMeta)
+          : []
+      lastHistoryLenRef.current = step0.history?.length ?? 0
+      setLogs([...fromHistory0, ...forCurrent0])
     }
   }, [replaySteps, replayAgentsMeta, applyOXState, handleMonopoly])
 
@@ -199,7 +260,12 @@ export default function OXSpectatorPage() {
         })
         applyOXState(data.ox_state, meta, handleMonopoly)
         if (data.ox_state?.history?.length) {
-          setLogs(mapOXHistoryToLogs(data.ox_state.history, meta))
+          const allLogs = mapOXHistoryToLogs(data.ox_state.history, meta)
+          lastHistoryLenRef.current = data.ox_state.history.length
+          setLogs(allLogs)
+        } else {
+          lastHistoryLenRef.current = 0
+          setLogs([])
         }
       })
       .catch(() => {
@@ -219,7 +285,59 @@ export default function OXSpectatorPage() {
     const step = replaySteps[replayStepIndex]
     if (step) {
       applyOXState(step, replayAgentsMeta, handleMonopoly)
-      setLogs(mapOXHistoryToLogs(step.history, replayAgentsMeta))
+      const fromHistory = mapOXHistoryToLogs(step.history, replayAgentsMeta)
+      const forCurrentRound =
+        step.phase !== "final_result"
+          ? getLogEntriesForCurrentRoundFromStep(step, replayAgentsMeta)
+          : []
+      lastHistoryLenRef.current = step.history?.length ?? lastHistoryLenRef.current
+      const newEntries = [...fromHistory, ...forCurrentRound]
+      const isAdvancing = replayStepIndex > lastReplayStepIndexRef.current
+      lastReplayStepIndexRef.current = replayStepIndex
+
+      setLogs((prev) => {
+        if (isAdvancing) {
+          // 앞으로 진행: 한 번 찍힌 로그는 유지하고, 새 항목만 아래에 추가. 이미 "처음 선택"이 있으면 그 블록은 건너뛰고 스위치/최종만 추가
+          const logKey = (e: OXLogEntry) => {
+            const choiceMatch = e.text.match(/^(.+?) (?:처음 )?선택 (O|X)$/)
+            if ((e.type === "CHOOSE_O" || e.type === "CHOOSE_X") && choiceMatch)
+              return `${e.round}|${e.type}|${choiceMatch[1]}|${choiceMatch[2]}`
+            return `${e.round}|${e.type}|${e.text}`
+          }
+          const existingKeys = new Set(prev.map(logKey))
+          const prevHasQuestionForRound = (r: number) =>
+            prev.some((p) => p.type === "PHASE" && p.text.startsWith("질문:") && p.round === r)
+          const prevHasFirstChoiceForRound = (r: number) =>
+            prev.some(
+              (p) =>
+                (p.type === "CHOOSE_O" || p.type === "CHOOSE_X") &&
+                p.text.includes("처음 선택") &&
+                p.round === r
+            )
+          let toAppend = newEntries.filter((e) => !existingKeys.has(logKey(e)))
+          toAppend = toAppend.filter((e) => {
+            if (e.type === "PHASE" && e.text.startsWith("질문:") && prevHasQuestionForRound(e.round))
+              return false
+            if (e.type === "INFO" && e.text === "──────── 처음 선택 ────────" && prevHasFirstChoiceForRound(e.round))
+              return false
+            if (
+              (e.type === "CHOOSE_O" || e.type === "CHOOSE_X") &&
+              e.text.includes("처음 선택") &&
+              prevHasFirstChoiceForRound(e.round)
+            )
+              return false
+            return true
+          })
+          return [...prev, ...toAppend]
+        }
+        // 뒤로 가기: 해당 단계 로그로 교체하되, 같은 항목은 이전 timestamp 유지
+        return newEntries.map((entry) => {
+          const match = prev.find(
+            (p) => p.round === entry.round && p.type === entry.type && p.text === entry.text
+          )
+          return match ? { ...entry, timestamp: match.timestamp } : entry
+        })
+      })
       if (step.phase === "final_result") {
         setResultOverlayRound(step.round ?? 1)
         const anySwitched = Object.values(step.agents ?? {}).some(
@@ -444,13 +562,27 @@ export default function OXSpectatorPage() {
   }, [resultOverlayStep])
 
   const handleFlip = useCallback((id: string) => {
-    setFlippedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
+    const next = new Set(flippedIds)
+    if (next.has(id)) {
+      next.delete(id)
+      setExpandedCardId(null)
+    } else {
+      next.add(id)
+      setExpandedCardId(id)
+    }
+    setFlippedIds(next)
+  }, [flippedIds])
+
+  const closeExpandedCard = useCallback(() => {
+    if (expandedCardId) {
+      setFlippedIds((prev) => {
+        const n = new Set(prev)
+        n.delete(expandedCardId)
+        return n
+      })
+      setExpandedCardId(null)
+    }
+  }, [expandedCardId])
 
   if (loading) {
     return (
@@ -498,8 +630,8 @@ export default function OXSpectatorPage() {
           <div className="absolute inset-0 z-20 bg-black/30 pointer-events-none" />
         )}
 
-        <div className="relative z-10 flex flex-col h-full">
-          <div className="pt-3 pb-2">
+        <div className="relative z-10 flex flex-col h-full min-h-0">
+          <div className="shrink-0 pt-2 pb-1 sm:pt-3 sm:pb-2">
             <OXRoundInfoPanel
               round={round}
               maxRound={maxRound}
@@ -507,11 +639,23 @@ export default function OXSpectatorPage() {
               question={question}
             />
           </div>
+          {/* 라운드 결과 그래프: 질문 패널 바로 아래에 고정 표시 */}
+          {phase !== "QUESTION_OPEN" && (
+            <div className="shrink-0 px-4 sm:px-6 mt-1 mb-1 flex justify-center">
+              <div className="w-full max-w-xl">
+                <DistributionBar
+                  oCount={agents.filter((a) => a.choice === "O").length}
+                  xCount={agents.filter((a) => a.choice === "X").length}
+                  total={agents.length}
+                />
+              </div>
+            </div>
+          )}
           <SwitchTimeBanner
             active={phase === "SWITCH_TIME" && switchCountdown > 0}
             countdown={switchCountdown}
           />
-          <div className="flex-1 flex items-start justify-center mt-10 sm:mt-16">
+          <div className="flex-1 min-h-0 flex items-start justify-center mt-4 sm:mt-10 overflow-y-auto overflow-x-hidden overscroll-behavior-y-contain">
             <OXMainPanel
               agents={agents}
               phase={phase}
@@ -519,8 +663,58 @@ export default function OXSpectatorPage() {
               flippedIds={flippedIds}
             />
           </div>
-          <div className="h-8 sm:h-10 flex-shrink-0 shrink-0 bg-gradient-to-t from-background to-transparent pointer-events-none" />
+          <div className="h-14 sm:h-16 flex-shrink-0 shrink-0 bg-gradient-to-t from-background to-transparent pointer-events-none" />
         </div>
+
+        {/* 카드 뒤집기 확대: 재판과 동일 — 화면 중앙에 크게, 바깥 클릭 시 닫고 앞면으로 */}
+        <AnimatePresence>
+          {expandedCardId && (() => {
+            const agent = agents.find((a) => a.id === expandedCardId)
+            if (!agent) return null
+            return (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+                onClick={closeExpandedCard}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Escape" && closeExpandedCard()}
+                aria-label="닫기"
+              >
+                <motion.div
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.9, opacity: 0 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 28 }}
+                  className="scale-[2] origin-center"
+                  onClick={(e) => e.stopPropagation()}
+                  role="presentation"
+                >
+                  <AgentCard
+                    agentId={agent.id}
+                    agentName={agent.name}
+                    characterImage={agent.characterImage}
+                    cardFramePng="/images/cards/ox_game_card.png"
+                    gameType="ox"
+                    isActive={false}
+                    isDead={false}
+                    isFlipped={true}
+                    onFlip={() => {}}
+                    side={agent.choice}
+                    comment={agent.switched ? "Switched!" : undefined}
+                    switched={agent.switched}
+                    persona={agent.persona}
+                    totalPoints={agent.points}
+                    winRate={65}
+                  />
+                </motion.div>
+              </motion.div>
+            )
+          })()}
+        </AnimatePresence>
 
         <MonopolyEffect
           active={monopoly.active}
@@ -616,9 +810,9 @@ export default function OXSpectatorPage() {
           </div>
         )}
 
-        {/* 리플레이 컨트롤: 게임 화면(section) 안 하단 고정 */}
+        {/* 리플레이 컨트롤: 하단 잘림 방지로 여유 높이 확보 */}
         {isReplayMode && replaySteps.length > 0 && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex flex-col gap-2 rounded-xl border border-white/20 bg-black/70 backdrop-blur-md px-4 py-3 shadow-xl">
+          <div className="absolute bottom-6 sm:bottom-8 left-1/2 -translate-x-1/2 z-40 flex flex-col gap-2 rounded-xl border border-white/20 bg-black/70 backdrop-blur-md px-4 py-3 shadow-xl">
             <div className="flex items-center gap-3">
               <button
                 type="button"

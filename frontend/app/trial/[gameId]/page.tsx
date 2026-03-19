@@ -8,6 +8,7 @@ import Image from "next/image"
 import { GameBackToWorldmap } from "@/components/game/game-back-to-worldmap"
 import { CaseInfoPanel, type TrialPhase } from "@/components/trial/case-info-panel"
 import { EvidencePanel } from "@/components/trial/evidence-panel"
+import { AgentCard } from "@/components/agent-card/agent-card"
 import { TrialCardLayout, type TrialAgent } from "@/components/trial/trial-card-layout"
 import { CenterStatementPanel, type SpeakerRole } from "@/components/trial/center-statement-panel"
 import { JuryVotePanel, type JuryVote } from "@/components/trial/jury-vote-panel"
@@ -56,6 +57,7 @@ export default function TrialSpectatorPage() {
   const [agents, setAgents] = useState<TrialAgent[]>([])
   const [logs, setLogs] = useState<TrialLogEntry[]>([])
   const [flippedIds, setFlippedIds] = useState<Set<string>>(new Set())
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
   const [verdict, setVerdict] = useState<string | null>(null)
   const [winnerTeam, setWinnerTeam] = useState<string | null>(null)
   const [matchedAt, setMatchedAt] = useState<number | null>(null)
@@ -513,13 +515,27 @@ export default function TrialSpectatorPage() {
   }, [notFound, router])
 
   const handleFlip = useCallback((id: string) => {
-    setFlippedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
+    const next = new Set(flippedIds)
+    if (next.has(id)) {
+      next.delete(id)
+      setExpandedCardId(null)
+    } else {
+      next.add(id)
+      setExpandedCardId(id)
+    }
+    setFlippedIds(next)
+  }, [flippedIds])
+
+  const closeExpandedCard = useCallback(() => {
+    if (expandedCardId) {
+      setFlippedIds((prev) => {
+        const next = new Set(prev)
+        next.delete(expandedCardId)
+        return next
+      })
+      setExpandedCardId(null)
+    }
+  }, [expandedCardId])
 
   const isArgumentPhase =
     phase === "ARGUMENT_1" ||
@@ -585,8 +601,8 @@ export default function TrialSpectatorPage() {
           )}
         </AnimatePresence>
 
-        <div className="relative z-10 flex flex-col h-full">
-          <div className="pt-3 pb-2 px-4">
+        <div className="relative z-10 flex flex-col h-full min-h-0">
+          <div className="shrink-0 pt-2 pb-1 px-2 sm:pt-3 sm:pb-2 sm:px-4">
             <CaseInfoPanel
               caseTitle={caseTitle || "사건 정보 로딩 중"}
               caseDescription={caseDescription}
@@ -596,7 +612,7 @@ export default function TrialSpectatorPage() {
             />
           </div>
 
-          <div className="flex-1 flex items-center justify-center relative px-2 overflow-hidden">
+          <div className="flex-1 min-h-0 flex items-start justify-center relative px-2 overflow-y-auto overflow-x-hidden overscroll-behavior-y-contain">
             <div className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-30">
               <EvidencePanel
                 side="prosecution"
@@ -606,7 +622,7 @@ export default function TrialSpectatorPage() {
               />
             </div>
 
-            <div className="flex flex-col items-center gap-2 w-full max-w-[1000px]">
+            <div className="flex flex-col items-center gap-2 w-full max-w-[1000px] pt-1 pb-4">
               <div className="relative w-full">
                 <TrialCardLayout
                   agents={agents}
@@ -671,6 +687,53 @@ export default function TrialSpectatorPage() {
             setVerdictState((prev) => ({ ...prev, active: false }))
           }
         />
+
+        {/* 카드 뒤집기 확대: 화면 중앙에 크게 표시, 바깥 클릭 시 닫고 앞면으로 */}
+        <AnimatePresence>
+          {expandedCardId && (() => {
+            const agent = agents.find((a) => a.id === expandedCardId)
+            if (!agent) return null
+            return (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+                onClick={closeExpandedCard}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Escape" && closeExpandedCard()}
+                aria-label="닫기"
+              >
+                <motion.div
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.9, opacity: 0 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 28 }}
+                  className="scale-[2] origin-center"
+                  onClick={(e) => e.stopPropagation()}
+                  role="presentation"
+                >
+                  <AgentCard
+                    agentId={agent.id}
+                    agentName={agent.name}
+                    characterImage={agent.characterImage}
+                    cardFramePng="/images/cards/trial_game_card.png"
+                    gameType="trial"
+                    isActive={false}
+                    isDead={false}
+                    isFlipped={true}
+                    onFlip={() => {}}
+                    persona="Molt Trial participant"
+                    totalPoints={1800}
+                    winRate={65}
+                  />
+                </motion.div>
+              </motion.div>
+            )
+          })()}
+        </AnimatePresence>
 
         {isReplayMode && replaySteps.length > 0 && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex flex-col gap-2 rounded-xl border border-white/20 bg-black/70 backdrop-blur-md px-4 py-3 shadow-xl">

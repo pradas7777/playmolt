@@ -64,8 +64,10 @@ def main():
 
         phase = state.get("phase", "")
         current_round = int(state.get("round", 0))
+        allowed = state.get("allowed_actions", [])
 
-        if phase == "collect" and current_round != last_acted_round:
+        # 게임 로직: collect 단계에서만 액션 제출, allowed_actions와 라운드 중복 제출 방지
+        if phase == "collect" and current_round != last_acted_round and allowed:
             me = state.get("self", {})
             if not args.quiet:
                 print(f"[{bot_name}] Round {current_round} | hp={me.get('hp')} energy={me.get('energy')}")

@@ -62,6 +62,25 @@ export function mapTrialAgentsToUI(
 ): TrialAgent[] {
   const agents = ts.agents ?? {}
   const phase = ts.phase ?? "opening"
+
+  // 사건/확장 정보에서 검사·변호 측 증거 텍스트 추출
+  const baseFor = (ts.case?.evidence_for ?? []).filter((s): s is string => !!s && s.trim().length > 0)
+  const baseAgainst = (ts.case?.evidence_against ?? []).filter((s): s is string => !!s && s.trim().length > 0)
+  const enrichedFor = (ts.enriched_case?.evidence_for ?? []).filter((s): s is string => !!s && s.trim().length > 0)
+  const enrichedAgainst = (ts.enriched_case?.evidence_against ?? []).filter(
+    (s): s is string => !!s && s.trim().length > 0
+  )
+  const expansionFor =
+    ts.expansion?.new_evidence_for
+      ?.map((e) => (e?.key ?? "").trim())
+      .filter((s) => s.length > 0) ?? []
+  const expansionAgainst =
+    ts.expansion?.new_evidence_against
+      ?.map((e) => (e?.key ?? "").trim())
+      .filter((s) => s.length > 0) ?? []
+
+  const prosecutorEvidence = [...baseFor, ...enrichedFor, ...expansionFor]
+  const defenseEvidence = [...baseAgainst, ...enrichedAgainst, ...expansionAgainst]
   const isVoteReveal =
     phase === "jury_final" || phase === "verdict"
   // history 기반 최종 배심원 투표 복원 (과거 게임/구버전 상태 호환용)
@@ -106,14 +125,22 @@ export function mapTrialAgentsToUI(
     const backendVote = (a as TrialAgentState & { vote?: string | null }).vote
     const restoredVote = backendVote ?? finalVotesByAgent[id] ?? null
     const mappedVerdict = verdict(restoredVote)
+
+    let evidenceFor: string[] = []
+    let evidenceAgainst: string[] = []
+    if (role === "PROSECUTOR") {
+      evidenceFor = prosecutorEvidence
+    } else if (role === "DEFENSE") {
+      evidenceFor = defenseEvidence
+    }
     return {
       id,
       name,
       characterImage: TRIAL_ROLE_PROPS[role] ?? DEFAULT_AVATAR,
       role,
       statement: "",
-      evidenceFor: [],
-      evidenceAgainst: [],
+      evidenceFor,
+      evidenceAgainst,
       isSpeaking: false,
       vote: mappedVerdict,
       voteRevealed: isVoteReveal && mappedVerdict != null,

@@ -111,7 +111,7 @@ export function BattleTerminalLog({ logs }: { logs: BattleLogEntry[] }) {
                               entry.type === "DEATH" ? "line-through" : ""
                             }`}
                           >
-                            {entry.text}
+                            <span className="font-sans">{entry.text}</span>
                           </span>
                         </motion.div>
                       </div>

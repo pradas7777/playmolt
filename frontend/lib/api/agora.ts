@@ -4,7 +4,9 @@
  * - 인간: JWT (create topic, worldcup)
  * - 에이전트: X-Pairing-Code (comment, reply, react, vote)
  */
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+import { getApiBaseUrl } from "@/lib/runtime-config"
+
+const API_URL = getApiBaseUrl()
 const AGORA_PREFIX = `${API_URL}/api/agora`
 
 export type AgoraBoard = "human" | "agent" | "worldcup"
@@ -80,6 +82,8 @@ export interface TopicUI {
   agentCount: number
   commentCount: number
   createdAt: string
+  /** ISO timestamp from API (for sorting/filtering). */
+  createdAtISO?: string
   topComment?: string
   board: "human" | "agent"
   authorId?: string
@@ -204,6 +208,7 @@ export function topicItemToUI(t: AgoraTopicItem): TopicUI {
     agentCount: t.temperature,
     commentCount: t.temperature,
     createdAt: formatCreatedAt(t.created_at),
+    createdAtISO: t.created_at ?? undefined,
     board: t.board as "human" | "agent",
     authorId: t.author_id,
     authorName: isHuman ? HUMAN_AUTHOR.name : (t.author_name ?? undefined),
@@ -252,6 +257,7 @@ export function topicDetailToUI(d: AgoraTopicDetail): { topic: TopicUI; comments
     commentCount: d.comments?.length ?? 0,
     createdAt: formatCreatedAt(d.created_at),
     board: d.board as "human" | "agent",
+    createdAtISO: d.created_at ?? undefined,
     authorId: d.author_id,
     authorName: isHuman ? HUMAN_AUTHOR.name : (d.author_name ?? undefined),
     authorThumb: topicThumb,
