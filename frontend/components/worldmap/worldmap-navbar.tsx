@@ -106,7 +106,7 @@ export interface WorldmapNavbarProps {
   recentBattleMatch?: RecentGameMatch | null
 }
 
-// NOTE: Match banner should persist (no auto-hide).
+const MATCH_BANNER_SEC = 10
 
 const GAME_SPECTATE: Record<string, { path: string; label: string }> = {
   battle: { path: "/battle", label: "배틀 아레나" },
@@ -133,7 +133,8 @@ export function WorldmapNavbar({
   const nowSec = Date.now() / 1000
   const matchFromContext = useRecentMatch()
   const recentMatch = recentBattleMatch ?? matchFromContext
-  const showMatchBanner = recentMatch != null
+  const showMatchBanner =
+    recentMatch != null && nowSec - recentMatch.matchedAt < MATCH_BANNER_SEC
 
   const fetchStats = useCallback(() => {
     getGlobalStats()
@@ -152,7 +153,11 @@ export function WorldmapNavbar({
   const aiPlayed = aiPlayedProp ?? globalStats.ai_played
   const loadingStats = loadingStatsProp ?? loadingStatsInternal
 
-  // Persisting banner does not need a 1s ticking rerender.
+  useEffect(() => {
+    if (!recentMatch) return
+    const id = setInterval(() => setTick((t) => t + 1), 1000)
+    return () => clearInterval(id)
+  }, [recentMatch])
 
   useEffect(() => {
     setHasToken(!!getStoredToken())

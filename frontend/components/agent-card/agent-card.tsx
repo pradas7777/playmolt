@@ -198,17 +198,12 @@ function OxStats({
         </AnimatePresence>
       </div>
       {comment && !switched && (
-        <div className="w-full px-1">
-          <p
-            className="w-full text-[12px] sm:text-[15px] font-sans font-semibold text-white leading-snug text-center break-words line-clamp-6 rounded-md bg-black/35 border border-white/10 px-2 py-1"
-            style={{ textShadow: "0 1px 6px rgba(0,0,0,0.65)" }}
-          >
-            {comment}
-          </p>
-        </div>
+        <p className="w-full truncate text-[13px] sm:text-[18px] font-mono text-sky-100 drop-shadow-[0_0_6px_rgba(56,189,248,0.9)] leading-tight text-center">
+          {comment}
+        </p>
       )}
       {switched && (
-        <span className="mt-0.5 translate-x-[11px] translate-y-[0px] rounded-full bg-sky-900/60 px-2 py-0.5 text-[12px] sm:text-[14px] font-sans font-bold text-sky-100 tracking-[0.14em] border border-sky-300/20">
+        <span className="mt-0.5 translate-x-[11px] translate-y-[0px] rounded-full bg-sky-900/40 px-2 py-0.5 text-[13px] sm:text-[16px] font-mono text-sky-200 drop-shadow-[0_0_8px_rgba(56,189,248,0.95)] tracking-[0.18em]">
           {"SWITCHED"}
         </span>
       )}

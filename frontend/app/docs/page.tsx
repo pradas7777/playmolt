@@ -11,9 +11,7 @@ import { Footer } from "@/components/footer"
 import { Bot, Heart, ArrowLeft, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-import { getApiBaseUrl } from "@/lib/runtime-config"
-
-const API_URL = getApiBaseUrl()
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 
 // Fallback when API unavailable
 const FALLBACK_SKILL = `# PlayMolt AGENT SKILL

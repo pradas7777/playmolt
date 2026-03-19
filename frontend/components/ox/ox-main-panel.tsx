@@ -12,8 +12,6 @@ export interface OXAgent {
   choice: "O" | "X" | null
   switchAvailable: boolean
   switched: boolean
-  /** 이번 라운드에서 스위치 사용 — 카드/로그는 이 값만 표시 */
-  switchedThisRound?: boolean
   points: number
   persona: string
 }
@@ -38,6 +36,7 @@ export function OXMainPanel({ agents, phase, onAgentFlip, flippedIds }: OXMainPa
   const oAgents = agents.filter((a) => a.choice === "O")
   const xAgents = agents.filter((a) => a.choice === "X")
   const undecidedAgents = agents.filter((a) => a.choice === null)
+  const showDistribution = phase !== "QUESTION_OPEN" && (oAgents.length > 0 || xAgents.length > 0)
 
   return (
     <div className="flex flex-col flex-1 items-center justify-center px-2 sm:px-4 gap-4 relative">
@@ -90,8 +89,8 @@ export function OXMainPanel({ agents, phase, onAgentFlip, flippedIds }: OXMainPa
                         isFlipped={flippedIds.has(agent.id)}
                         onFlip={() => onAgentFlip?.(agent.id)}
                         side="O"
-                        comment={agent.switchedThisRound ? "Switched!" : undefined}
-                        switched={agent.switchedThisRound ?? false}
+                        comment={agent.switched ? "Switched!" : undefined}
+                        switched={agent.switched}
                         persona={agent.persona}
                         totalPoints={agent.points}
                         winRate={65}
@@ -116,7 +115,7 @@ export function OXMainPanel({ agents, phase, onAgentFlip, flippedIds }: OXMainPa
                         )}
                       </div>
                     )}
-                    {(agent.switchedThisRound ?? false) && (
+                    {agent.switched && (
                       <motion.div
                         initial={{ scale: 0, y: 10 }}
                         animate={{ scale: 1, y: 0 }}
@@ -134,36 +133,11 @@ export function OXMainPanel({ agents, phase, onAgentFlip, flippedIds }: OXMainPa
           </div>
         </div>
 
-        {/* Center Divider — 대기 카드 살짝 위로(반 칸~한 칸) / 노란 선은 전체 높이 */}
+        {/* Center Divider */}
         <div className="flex flex-col items-center justify-start w-28 sm:w-40 relative shrink-0 pt-10 sm:pt-16">
-          {/* 노란 선: 열 전체 높이, 대기 칸 위쪽까지 겹쳐서 표시 */}
-          <motion.div
-            className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 pointer-events-none"
-            animate={
-              phase === "SWITCH_TIME"
-                ? {
-                    backgroundColor: ["rgba(234,179,8,0.3)", "rgba(234,179,8,0.8)", "rgba(234,179,8,0.3)"],
-                    boxShadow: [
-                      "0 0 0px rgba(234,179,8,0)",
-                      "0 0 12px 3px rgba(234,179,8,0.4)",
-                      "0 0 0px rgba(234,179,8,0)",
-                    ],
-                  }
-                : { backgroundColor: "rgba(255,255,255,0.15)" }
-            }
-            transition={{ duration: 1.5, repeat: Infinity }}
-          />
-          <motion.span
-            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-xs font-mono font-bold text-white/40 pointer-events-none z-10"
-            animate={phase === "SWITCH_TIME" ? { color: ["rgba(234,179,8,0.6)", "rgba(234,179,8,1)", "rgba(234,179,8,0.6)"] } : {}}
-            transition={{ duration: 1.5, repeat: Infinity }}
-          >
-            VS
-          </motion.span>
-
           {/* Undecided agents (before choice) */}
           {undecidedAgents.length > 0 && (
-            <div className="flex flex-col gap-0.5 items-center mb-2 flex-1 min-h-0 justify-center relative z-0">
+            <div className="flex flex-col gap-0.5 items-center mb-2 flex-1 min-h-0 justify-center">
               {undecidedAgents.map((agent, i) => (
                 <motion.div
                   key={agent.id}
@@ -204,6 +178,50 @@ export function OXMainPanel({ agents, phase, onAgentFlip, flippedIds }: OXMainPa
               ))}
             </div>
           )}
+
+          {/* Vertical divider line */}
+          <motion.div
+            className="w-px flex-1 min-h-[40px]"
+            animate={
+              phase === "SWITCH_TIME"
+                ? {
+                    backgroundColor: ["rgba(234,179,8,0.3)", "rgba(234,179,8,0.8)", "rgba(234,179,8,0.3)"],
+                    boxShadow: [
+                      "0 0 0px rgba(234,179,8,0)",
+                      "0 0 12px 3px rgba(234,179,8,0.4)",
+                      "0 0 0px rgba(234,179,8,0)",
+                    ],
+                  }
+                : { backgroundColor: "rgba(255,255,255,0.15)" }
+            }
+            transition={{ duration: 1.5, repeat: Infinity }}
+          />
+
+          {/* VS text */}
+          <motion.span
+            className="my-2 text-xs font-mono font-bold text-white/40 shrink-0"
+            animate={phase === "SWITCH_TIME" ? { color: ["rgba(234,179,8,0.6)", "rgba(234,179,8,1)", "rgba(234,179,8,0.6)"] } : {}}
+            transition={{ duration: 1.5, repeat: Infinity }}
+          >
+            VS
+          </motion.span>
+
+          <motion.div
+            className="w-px flex-1 min-h-[40px]"
+            animate={
+              phase === "SWITCH_TIME"
+                ? {
+                    backgroundColor: ["rgba(234,179,8,0.3)", "rgba(234,179,8,0.8)", "rgba(234,179,8,0.3)"],
+                    boxShadow: [
+                      "0 0 0px rgba(234,179,8,0)",
+                      "0 0 12px 3px rgba(234,179,8,0.4)",
+                      "0 0 0px rgba(234,179,8,0)",
+                    ],
+                  }
+                : { backgroundColor: "rgba(255,255,255,0.15)" }
+            }
+            transition={{ duration: 1.5, repeat: Infinity }}
+          />
         </div>
 
         {/* X Zone */}
@@ -253,8 +271,8 @@ export function OXMainPanel({ agents, phase, onAgentFlip, flippedIds }: OXMainPa
                         isFlipped={flippedIds.has(agent.id)}
                         onFlip={() => onAgentFlip?.(agent.id)}
                         side="X"
-                        comment={agent.switchedThisRound ? "Switched!" : undefined}
-                        switched={agent.switchedThisRound ?? false}
+                        comment={agent.switched ? "Switched!" : undefined}
+                        switched={agent.switched}
                         persona={agent.persona}
                         totalPoints={agent.points}
                         winRate={65}
@@ -279,7 +297,7 @@ export function OXMainPanel({ agents, phase, onAgentFlip, flippedIds }: OXMainPa
                         )}
                       </div>
                     )}
-                    {(agent.switchedThisRound ?? false) && (
+                    {agent.switched && (
                       <motion.div
                         initial={{ scale: 0, y: 10 }}
                         animate={{ scale: 1, y: 0 }}
@@ -297,6 +315,24 @@ export function OXMainPanel({ agents, phase, onAgentFlip, flippedIds }: OXMainPa
           </div>
         </div>
       </div>
+
+      {/* Distribution bar */}
+      <AnimatePresence>
+        {showDistribution && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className="w-full max-w-lg shrink-0"
+          >
+            <DistributionBar
+              oCount={oAgents.length}
+              xCount={xAgents.length}
+              total={agents.length}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

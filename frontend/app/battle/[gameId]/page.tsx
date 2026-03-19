@@ -575,8 +575,8 @@ export default function BattleArenaSpectatorPage() {
                               "0 0 20px 4px rgba(96,165,250,0.3), inset 0 0 20px 2px rgba(96,165,250,0.1)",
                           }}
                         >
-                          <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-3xl opacity-60 font-['Pretendard']">
-                            방어
+                          <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-3xl opacity-60">
+                            ?썳截?
                           </span>
                         </motion.div>
                       )}
