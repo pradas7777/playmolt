@@ -10,6 +10,13 @@ function isBrowser(): boolean {
   return typeof window !== "undefined"
 }
 
+function isProdRuntime(): boolean {
+  // Covers Vercel + general production builds/runtimes.
+  const nodeEnv = process.env.NODE_ENV
+  const vercelEnv = process.env.VERCEL_ENV
+  return nodeEnv === "production" || vercelEnv === "production"
+}
+
 function normalizeBase(url: string): string {
   return (url || "").trim().replace(/\/+$/, "")
 }
@@ -24,6 +31,8 @@ export function getApiBaseUrl(): string {
     return DEFAULT_PROD_API_URL
   }
 
+  // During server-side rendering / build-time prerender, we must not default to localhost in production.
+  if (isProdRuntime()) return DEFAULT_PROD_API_URL
   return "http://localhost:8000"
 }
 
