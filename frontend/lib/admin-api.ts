@@ -1,4 +1,6 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+import { getApiBaseUrl } from "@/lib/runtime-config"
+
+const API_URL = getApiBaseUrl()
 const ADMIN_PREFIX = `${API_URL}/api/admin`
 export const ADMIN_TOKEN_KEY = "playmolt_admin_token"
 
